@@ -119,6 +119,8 @@ export function useChat() {
         currentToolCall,
         sendMessage,
         clearMessages,
+        setMessages,
+        setSessionId,
     };
 }
 

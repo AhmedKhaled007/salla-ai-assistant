@@ -129,3 +129,71 @@ export async function checkHealth() {
 
     return response.json();
 }
+
+// ============ Session Management ============
+
+/**
+ * Create a new conversation session
+ * @returns {Promise<{session_id: string}>}
+ */
+export async function createSession() {
+    const response = await fetch(`${API_BASE_URL}/sessions`, {
+        method: 'POST',
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to create session');
+    }
+
+    return response.json();
+}
+
+/**
+ * Get all active sessions
+ * @returns {Promise<{sessions: string[]}>}
+ */
+export async function getSessions() {
+    const response = await fetch(`${API_BASE_URL}/sessions`);
+
+    if (!response.ok) {
+        throw new Error('Failed to fetch sessions');
+    }
+
+    return response.json();
+}
+
+/**
+ * Get messages for a specific session
+ * @param {string} sessionId - The session ID
+ * @returns {Promise<{session_id: string, messages: Array}>}
+ */
+export async function getSession(sessionId) {
+    const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`);
+
+    if (!response.ok) {
+        if (response.status === 404) {
+            return null;
+        }
+        throw new Error('Failed to fetch session');
+    }
+
+    return response.json();
+}
+
+/**
+ * Delete a conversation session
+ * @param {string} sessionId - The session ID to delete
+ * @returns {Promise<{message: string}>}
+ */
+export async function deleteSession(sessionId) {
+    const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
+        method: 'DELETE',
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to delete session');
+    }
+
+    return response.json();
+}
+

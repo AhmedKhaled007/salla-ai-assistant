@@ -1,7 +1,28 @@
 /**
  * Sidebar component for navigation and conversation history
  */
-export function Sidebar({ onNewChat }) {
+export function Sidebar({
+    onNewChat,
+    sessions = [],
+    currentSessionId,
+    onLoadSession,
+    onDeleteSession,
+    onQuickAction,
+    healthStatus
+}) {
+    // Quick action queries
+    const quickActions = [
+        { icon: '📦', label: 'Check Orders', query: 'Show me my recent orders' },
+        { icon: '📊', label: 'View Analytics', query: 'What are my store analytics?' },
+        { icon: '🏷️', label: 'Manage Products', query: 'List my products' },
+        { icon: '👥', label: 'Customers', query: 'Show me customer information' },
+    ];
+
+    const formatSessionId = (id) => {
+        // Show first 8 chars of session ID
+        return id.length > 8 ? `${id.slice(0, 8)}...` : id;
+    };
+
     return (
         <aside className="w-[280px] h-screen flex flex-col bg-bg-primary border-r border-border shrink-0 shadow-sm">
             {/* Header */}
@@ -20,33 +41,76 @@ export function Sidebar({ onNewChat }) {
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-6">
-                <div className="mb-8">
-                    <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-4">
+                {/* Quick Actions */}
+                <div className="mb-6">
+                    <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">
                         Quick Actions
                     </h3>
                     <div className="flex flex-col gap-1">
-                        <button className="flex items-center gap-4 px-4 py-2 text-sm text-text-secondary rounded-lg hover:bg-accent hover:text-primary transition-all text-left">
-                            <span>📦</span>
-                            <span>Check Orders</span>
-                        </button>
-                        <button className="flex items-center gap-4 px-4 py-2 text-sm text-text-secondary rounded-lg hover:bg-accent hover:text-primary transition-all text-left">
-                            <span>📊</span>
-                            <span>View Analytics</span>
-                        </button>
-                        <button className="flex items-center gap-4 px-4 py-2 text-sm text-text-secondary rounded-lg hover:bg-accent hover:text-primary transition-all text-left">
-                            <span>🏷️</span>
-                            <span>Manage Products</span>
-                        </button>
-                        <button className="flex items-center gap-4 px-4 py-2 text-sm text-text-secondary rounded-lg hover:bg-accent hover:text-primary transition-all text-left">
-                            <span>👥</span>
-                            <span>Customers</span>
-                        </button>
+                        {quickActions.map((action, index) => (
+                            <button
+                                key={index}
+                                onClick={() => onQuickAction?.(action.query)}
+                                className="flex items-center gap-4 px-4 py-2 text-sm text-text-secondary rounded-lg hover:bg-accent hover:text-primary transition-all text-left"
+                            >
+                                <span>{action.icon}</span>
+                                <span>{action.label}</span>
+                            </button>
+                        ))}
                     </div>
                 </div>
+
+                {/* Session History */}
+                {sessions.length > 0 && (
+                    <div>
+                        <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">
+                            Conversations
+                        </h3>
+                        <div className="flex flex-col gap-1">
+                            {sessions.slice(0, 10).map((id) => (
+                                <div
+                                    key={id}
+                                    className={`group flex items-center justify-between px-4 py-2 rounded-lg cursor-pointer transition-all ${currentSessionId === id
+                                            ? 'bg-accent text-primary'
+                                            : 'text-text-secondary hover:bg-accent/50'
+                                        }`}
+                                    onClick={() => onLoadSession?.(id)}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <span>💬</span>
+                                        <span className="text-sm font-mono">{formatSessionId(id)}</span>
+                                    </div>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onDeleteSession?.(id);
+                                        }}
+                                        className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-error transition-all"
+                                        title="Delete conversation"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Footer */}
             <div className="p-6 border-t border-border">
+                {/* Health Status */}
+                {healthStatus && (
+                    <div className="flex items-center gap-2 mb-4 text-xs">
+                        <span className={`w-2 h-2 rounded-full ${healthStatus.status === 'healthy' ? 'bg-success' :
+                                healthStatus.status === 'degraded' ? 'bg-warning' : 'bg-error'
+                            }`}></span>
+                        <span className="text-text-muted">
+                            {healthStatus.status === 'healthy' ? 'Connected' :
+                                healthStatus.status === 'degraded' ? 'Degraded' : 'Disconnected'}
+                        </span>
+                    </div>
+                )}
                 <div className="flex items-center gap-4">
                     <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center font-semibold text-text-inverse">
                         A
@@ -60,3 +124,4 @@ export function Sidebar({ onNewChat }) {
         </aside>
     );
 }
+
