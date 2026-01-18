@@ -12,18 +12,17 @@ from .utils import settings, logger
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Application lifespan manager. Connects to MCP server on startup."""
     client = MCPClient()
     try:
         connected = await client.connect_to_server(settings.server_script_path)
         if not connected:
-            raise HTTPException(
-                status_code=500, detail="Failed to connect to MCP server"
-            )
+            raise RuntimeError("Failed to connect to MCP server")
         app.state.client = client
         yield
     except Exception as e:
         logger.error(f"Error during lifespan: {e}")
-        raise HTTPException(status_code=500, detail="Error during lifespan") from e
+        raise RuntimeError(f"Startup failed: {e}") from e
     finally:
         # shutdown
         await client.cleanup()
