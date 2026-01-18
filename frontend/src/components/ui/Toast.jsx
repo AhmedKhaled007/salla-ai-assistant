@@ -4,7 +4,7 @@ import { useState, useCallback, createContext, useContext } from 'react';
 const ToastContext = createContext(null);
 
 /**
- * Toast notification component
+ * Toast component
  */
 function Toast({ message, type = 'info', onClose }) {
     const bgColor = {
@@ -27,7 +27,7 @@ function Toast({ message, type = 'info', onClose }) {
             <span className="flex-1 text-sm">{message}</span>
             <button
                 onClick={onClose}
-                className="text-white/80 hover:text-white ml-2"
+                className="text-white/80 hover:text-white ms-2"
             >
                 ✕
             </button>
@@ -42,7 +42,7 @@ function ToastContainer({ toasts, removeToast }) {
     if (toasts.length === 0) return null;
 
     return (
-        <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
+        <div className="fixed bottom-6 end-6 z-50 flex flex-col gap-2">
             {toasts.map((toast) => (
                 <Toast
                     key={toast.id}

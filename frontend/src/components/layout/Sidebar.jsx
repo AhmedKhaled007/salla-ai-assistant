@@ -39,15 +39,15 @@ export function Sidebar({
 
             {/* Sidebar Content */}
             <aside className={`
-                fixed lg:relative z-50 w-[280px] h-screen flex flex-col bg-bg-primary border-r border-border shrink-0 shadow-sm transition-transform duration-300 lg:transform-none
-                ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+                fixed lg:relative z-50 w-[280px] h-screen flex flex-col bg-bg-primary border-e border-border shrink-0 shadow-sm transition-transform duration-300 lg:transform-none
+                ${isOpen ? 'translate-x-0' : 'ltr:-translate-x-full rtl:translate-x-full'}
             `}>
                 {/* Header */}
                 <div className="p-6 border-b border-border flex flex-col gap-6 relative">
                     {/* Mobile Close Button */}
                     <button
                         onClick={onClose}
-                        className="absolute right-4 top-4 p-2 text-text-secondary hover:text-primary lg:hidden"
+                        className="absolute end-4 top-4 p-2 text-text-secondary hover:text-primary lg:hidden"
                     >
                         ✕
                     </button>
@@ -82,7 +82,7 @@ export function Sidebar({
                                         onQuickAction?.(action.query);
                                         onClose?.();
                                     }}
-                                    className="flex items-center gap-4 px-4 py-2 text-sm text-text-secondary rounded-lg hover:bg-accent hover:text-primary transition-all text-left"
+                                    className="flex items-center gap-4 px-4 py-2 text-sm text-text-secondary rounded-lg hover:bg-accent hover:text-primary transition-all text-start"
                                 >
                                     <span>{action.icon}</span>
                                     <span>{action.label}</span>

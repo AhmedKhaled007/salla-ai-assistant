@@ -18,7 +18,7 @@ function CodeBlock({ children, className }) {
 
     return (
         <div className="relative group my-3">
-            <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="absolute end-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
                     onClick={handleCopy}
                     className="px-2 py-1 text-xs rounded bg-bg-tertiary hover:bg-border text-text-secondary"
@@ -111,7 +111,7 @@ export function MessageBubble({ message }) {
         },
         blockquote({ children }) {
             return (
-                <blockquote className="border-l-4 border-primary/50 pl-4 my-3 italic text-text-secondary">
+                <blockquote className="border-s-4 border-primary/50 ps-4 my-3 italic text-text-secondary">
                     {children}
                 </blockquote>
             );
@@ -124,8 +124,9 @@ export function MessageBubble({ message }) {
             );
         },
         th({ children }) {
-            return <th className="px-3 py-2 bg-bg-tertiary border-b border-border text-left font-semibold">{children}</th>;
+            return <th className="px-3 py-2 bg-bg-tertiary border-b border-border text-start font-semibold">{children}</th>;
         },
+
         td({ children }) {
             return <td className="px-3 py-2 border-b border-border">{children}</td>;
         },
@@ -134,13 +135,13 @@ export function MessageBubble({ message }) {
     // Render tool call (streaming - when tool is being called)
     if (isToolCall) {
         return (
-            <div className="flex flex-col max-w-[90%] mr-auto mb-3 animate-fade-in">
+            <div className="flex flex-col max-w-[90%] me-auto mb-3 animate-fade-in">
                 <div className="flex items-center gap-2 px-4 py-2.5 bg-accent/30 border border-primary/20 rounded-lg">
                     <span className="animate-spin text-primary">⚙️</span>
                     <span className="text-sm font-medium text-primary">Calling: {message.toolName}</span>
                 </div>
                 {message.toolArgs && Object.keys(message.toolArgs).length > 0 && (
-                    <div className="mt-1 ml-4 px-3 py-2 bg-bg-tertiary rounded text-xs font-mono text-text-secondary">
+                    <div className="mt-1 ms-4 px-3 py-2 bg-bg-tertiary rounded text-xs font-mono text-text-secondary">
                         {JSON.stringify(message.toolArgs, null, 2)}
                     </div>
                 )}
@@ -154,7 +155,7 @@ export function MessageBubble({ message }) {
         const isError = typeof result === 'string' && result.toLowerCase().includes('error');
 
         return (
-            <div className="flex flex-col max-w-[90%] mr-auto mb-3 animate-fade-in">
+            <div className="flex flex-col max-w-[90%] me-auto mb-3 animate-fade-in">
                 <div className={`flex items-center gap-2 px-4 py-2 border border-b-0 rounded-t-lg ${isError ? 'bg-error/10 border-error/30' : 'bg-success/10 border-success/30'
                     }`}>
                     <span>{isError ? '❌' : '✅'}</span>
@@ -175,7 +176,7 @@ export function MessageBubble({ message }) {
     // Render legacy tool result
     if (isTool) {
         return (
-            <div className="flex flex-col max-w-[90%] mr-auto mb-4 animate-fade-in">
+            <div className="flex flex-col max-w-[90%] me-auto mb-4 animate-fade-in">
                 <div className="flex items-center gap-2 px-4 py-2 bg-bg-tertiary border border-border border-b-0 rounded-t-lg">
                     <span className="text-sm">🔧</span>
                     <span className="text-sm font-medium text-text-secondary">Tool Result</span>
@@ -190,15 +191,15 @@ export function MessageBubble({ message }) {
     }
 
     return (
-        <div className={`flex gap-4 max-w-[85%] mb-4 animate-fade-in ${isUser ? 'ml-auto flex-row-reverse' : 'mr-auto'}`}>
+        <div className={`flex gap-4 max-w-[85%] mb-4 animate-fade-in ${isUser ? 'ms-auto flex-row-reverse' : 'me-auto'}`}>
             {isAssistant && (
                 <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center shrink-0">
                     <span className="text-lg">✨</span>
                 </div>
             )}
             <div className={`px-6 py-4 rounded-2xl ${isUser
-                ? 'bg-primary text-text-inverse rounded-br-sm'
-                : 'bg-bg-primary border border-border rounded-bl-sm shadow-sm'
+                ? 'bg-primary text-text-inverse rounded-br-sm rtl:rounded-bl-sm rtl:rounded-br-2xl'
+                : 'bg-bg-primary border border-border rounded-bl-sm shadow-sm rtl:rounded-br-sm rtl:rounded-bl-2xl'
                 }`}>
                 {message.toolCalls && message.toolCalls.length > 0 && (
                     <div className="flex flex-wrap gap-2 mb-2">
@@ -214,7 +215,7 @@ export function MessageBubble({ message }) {
                     isUser ? (
                         <p className="text-base leading-relaxed whitespace-pre-wrap break-words">{message.content}</p>
                     ) : (
-                        <div className="prose prose-sm max-w-none text-text-primary leading-relaxed">
+                        <div className="prose prose-sm max-w-none text-text-primary leading-relaxed text-start">
                             <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                                 {message.content}
                             </Markdown>

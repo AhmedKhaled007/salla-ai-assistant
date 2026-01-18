@@ -81,7 +81,7 @@ export function ChatContainer({ messages, isLoading, onSendMessage }) {
             {showScrollButton && (
                 <button
                     onClick={scrollToBottom}
-                    className="absolute bottom-28 right-8 w-10 h-10 bg-primary text-text-inverse rounded-full shadow-lg flex items-center justify-center hover:bg-primary-dark transition-all animate-fade-in"
+                    className="absolute bottom-28 end-8 w-10 h-10 bg-primary text-text-inverse rounded-full shadow-lg flex items-center justify-center hover:bg-primary-dark transition-all animate-fade-in"
                     title="Scroll to bottom"
                 >
                     <span className="text-lg">↓</span>
