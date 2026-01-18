@@ -164,9 +164,16 @@ class MCPClient:
                         logger.info(f"Calling tool {tool_name} with args {tool_args}")
                         
                         try:
-                            result = await self.session.call_tool(tool_name, tool_args)
+                            # Add timeout for tool execution
+                            result = await asyncio.wait_for(
+                                self.session.call_tool(tool_name, tool_args),
+                                timeout=settings.tool_timeout
+                            )
                             tool_content = str(result.content)
                             logger.info(f"Tool {tool_name} result: {tool_content[:100]}...")
+                        except asyncio.TimeoutError:
+                            logger.error(f"Tool {tool_name} timed out after {settings.tool_timeout}s")
+                            tool_content = f"Error: Tool '{tool_name}' timed out after {settings.tool_timeout} seconds"
                         except Exception as e:
                             logger.error(f"Tool {tool_name} failed: {e}")
                             tool_content = f"Error: Tool '{tool_name}' failed with error: {str(e)}"
@@ -246,9 +253,15 @@ class MCPClient:
                         yield {"type": "tool_call", "tool_name": tool_name, "tool_args": tool_args}
                         
                         try:
-                            result = await self.session.call_tool(tool_name, tool_args)
+                            result = await asyncio.wait_for(
+                                self.session.call_tool(tool_name, tool_args),
+                                timeout=settings.tool_timeout
+                            )
                             tool_content = str(result.content)
                             yield {"type": "tool_result", "tool_name": tool_name, "result": tool_content[:500]}
+                        except asyncio.TimeoutError:
+                            tool_content = f"Error: Tool '{tool_name}' timed out after {settings.tool_timeout} seconds"
+                            yield {"type": "tool_result", "tool_name": tool_name, "result": tool_content}
                         except Exception as e:
                             tool_content = f"Error: Tool '{tool_name}' failed: {str(e)}"
                             yield {"type": "tool_result", "tool_name": tool_name, "result": tool_content}

@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     max_iterations: int = 10  # Max tool-calling iterations per query
     max_query_length: int = 10000  # Max characters in query (prevent abuse)
     llm_max_tokens: int | None = None  # Max tokens for LLM response (None = model default)
+    tool_timeout: float = 30.0  # Timeout in seconds for tool execution
 
     # CORS Configuration
     allowed_origins: str = "http://localhost:3000,http://localhost:5173"  # Comma-separated origins
