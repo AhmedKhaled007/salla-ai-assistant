@@ -30,10 +30,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="MCP Client API", lifespan=lifespan)
 
 
-# Add CORS middleware
+# Add CORS middleware with configurable origins
+# Set ALLOWED_ORIGINS env var for production (comma-separated)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=[origin.strip() for origin in settings.allowed_origins.split(",")],
     allow_credentials=True,
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers

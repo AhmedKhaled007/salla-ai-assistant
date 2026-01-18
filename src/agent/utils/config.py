@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Agent Configuration
     max_iterations: int = 10  # Max tool-calling iterations per query
 
+    # CORS Configuration
+    allowed_origins: str = "http://localhost:3000,http://localhost:5173"  # Comma-separated origins
+
     # Logging Configuration
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["text", "json"] = "text"
