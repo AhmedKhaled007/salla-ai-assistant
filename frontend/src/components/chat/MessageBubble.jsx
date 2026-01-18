@@ -1,3 +1,45 @@
+import { useState } from 'react';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+/**
+ * Code block with copy button
+ */
+function CodeBlock({ children, className }) {
+    const [copied, setCopied] = useState(false);
+    const language = className?.replace('language-', '') || '';
+    const code = String(children).replace(/\n$/, '');
+
+    const handleCopy = async () => {
+        await navigator.clipboard.writeText(code);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    return (
+        <div className="relative group my-3">
+            <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                    onClick={handleCopy}
+                    className="px-2 py-1 text-xs rounded bg-bg-tertiary hover:bg-border text-text-secondary"
+                >
+                    {copied ? '✓ Copied' : 'Copy'}
+                </button>
+            </div>
+            {language && (
+                <div className="text-xs text-text-muted px-3 py-1 bg-bg-tertiary rounded-t border-b border-border">
+                    {language}
+                </div>
+            )}
+            <pre className={`bg-bg-secondary p-4 overflow-x-auto ${language ? 'rounded-b' : 'rounded'} border border-border`}>
+                <code className={`font-mono text-sm text-text-primary ${className || ''}`}>
+                    {code}
+                </code>
+            </pre>
+        </div>
+    );
+}
+
 /**
  * Renders a single message bubble
  */
@@ -22,6 +64,71 @@ export function MessageBubble({ message }) {
             }
         }
         return JSON.stringify(message.content, null, 2);
+    };
+
+    // Custom markdown components
+    const markdownComponents = {
+        code({ inline, className, children, ...props }) {
+            if (inline) {
+                return (
+                    <code className="px-1.5 py-0.5 bg-bg-tertiary rounded text-sm font-mono" {...props}>
+                        {children}
+                    </code>
+                );
+            }
+            return <CodeBlock className={className}>{children}</CodeBlock>;
+        },
+        p({ children }) {
+            return <p className="mb-3 last:mb-0">{children}</p>;
+        },
+        ul({ children }) {
+            return <ul className="list-disc list-inside mb-3 space-y-1">{children}</ul>;
+        },
+        ol({ children }) {
+            return <ol className="list-decimal list-inside mb-3 space-y-1">{children}</ol>;
+        },
+        li({ children }) {
+            return <li className="text-text-primary">{children}</li>;
+        },
+        a({ href, children }) {
+            return (
+                <a href={href} className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">
+                    {children}
+                </a>
+            );
+        },
+        strong({ children }) {
+            return <strong className="font-semibold">{children}</strong>;
+        },
+        h1({ children }) {
+            return <h1 className="text-xl font-bold mb-3 mt-4 first:mt-0">{children}</h1>;
+        },
+        h2({ children }) {
+            return <h2 className="text-lg font-bold mb-2 mt-3 first:mt-0">{children}</h2>;
+        },
+        h3({ children }) {
+            return <h3 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h3>;
+        },
+        blockquote({ children }) {
+            return (
+                <blockquote className="border-l-4 border-primary/50 pl-4 my-3 italic text-text-secondary">
+                    {children}
+                </blockquote>
+            );
+        },
+        table({ children }) {
+            return (
+                <div className="overflow-x-auto my-3">
+                    <table className="min-w-full border border-border rounded">{children}</table>
+                </div>
+            );
+        },
+        th({ children }) {
+            return <th className="px-3 py-2 bg-bg-tertiary border-b border-border text-left font-semibold">{children}</th>;
+        },
+        td({ children }) {
+            return <td className="px-3 py-2 border-b border-border">{children}</td>;
+        },
     };
 
     // Render tool call (streaming - when tool is being called)
@@ -104,7 +211,15 @@ export function MessageBubble({ message }) {
                     </div>
                 )}
                 {message.content && (
-                    <p className="text-base leading-relaxed whitespace-pre-wrap break-words">{message.content}</p>
+                    isUser ? (
+                        <p className="text-base leading-relaxed whitespace-pre-wrap break-words">{message.content}</p>
+                    ) : (
+                        <div className="prose prose-sm max-w-none text-text-primary leading-relaxed">
+                            <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                                {message.content}
+                            </Markdown>
+                        </div>
+                    )
                 )}
                 {message.isError && (
                     <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-error/15 text-error">Error</span>
@@ -113,4 +228,5 @@ export function MessageBubble({ message }) {
         </div>
     );
 }
+
 
