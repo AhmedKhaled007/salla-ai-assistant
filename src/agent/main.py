@@ -55,6 +55,22 @@ class ToolCall(BaseModel):
     args: Dict[str, Any]
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for load balancer probes.
+    
+    Returns MCP connection status, LLM availability, and service info.
+    """
+    mcp_connected = app.state.client.session is not None
+    
+    return {
+        "status": "healthy" if mcp_connected else "degraded",
+        "mcp_connected": mcp_connected,
+        "llm_model": settings.llm_model,
+        "active_sessions": len(app.state.client.list_sessions()),
+    }
+
+
 @app.post("/query")
 async def process_query(request: QueryRequest):
     """Process a query and return the response.
