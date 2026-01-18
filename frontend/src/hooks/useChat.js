@@ -1,13 +1,16 @@
-import { useState, useCallback } from 'react';
-import { sendQuery } from '../services/api';
+import { useState, useCallback, useRef } from 'react';
+import { sendQueryStream } from '../services/api';
 
 /**
- * Custom hook for chat functionality
+ * Custom hook for chat functionality with SSE streaming
  */
 export function useChat() {
     const [messages, setMessages] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [sessionId, setSessionId] = useState(null);
+    const [currentToolCall, setCurrentToolCall] = useState(null);
+    const abortControllerRef = useRef(null);
 
     const sendMessage = useCallback(async (query) => {
         if (!query.trim()) return;
@@ -23,55 +26,99 @@ export function useChat() {
         setMessages(prev => [...prev, userMessage]);
         setIsLoading(true);
         setError(null);
+        setCurrentToolCall(null);
+
+        // Create placeholder for assistant response
+        const assistantMessageId = Date.now() + 1;
+        const toolCalls = [];
 
         try {
-            const response = await sendQuery(query);
+            await sendQueryStream(query, sessionId, {
+                onSession: (newSessionId) => {
+                    setSessionId(newSessionId);
+                },
+                onToolCall: ({ toolName, toolArgs }) => {
+                    const toolCall = { name: toolName, args: toolArgs, status: 'running' };
+                    toolCalls.push(toolCall);
+                    setCurrentToolCall(toolCall);
 
-            // Process response messages
-            const newMessages = response.messages
-                .filter(msg => msg.role !== 'system') // Skip system messages
-                .map((msg, index) => ({
-                    id: Date.now() + index + 1,
-                    role: msg.role,
-                    content: msg.content,
-                    toolCalls: msg.tool_calls || null,
-                    toolCallId: msg.tool_call_id || null,
-                    timestamp: new Date().toISOString(),
-                }));
+                    // Add tool call as a message
+                    setMessages(prev => [...prev, {
+                        id: Date.now(),
+                        role: 'tool_call',
+                        toolName,
+                        toolArgs,
+                        timestamp: new Date().toISOString(),
+                    }]);
+                },
+                onToolResult: ({ toolName, result }) => {
+                    // Mark tool as complete
+                    const tool = toolCalls.find(t => t.name === toolName && t.status === 'running');
+                    if (tool) tool.status = 'complete';
+                    setCurrentToolCall(null);
 
-            // Replace user message and add all response messages
-            setMessages(prev => {
-                const withoutLastUser = prev.slice(0, -1);
-                return [...withoutLastUser, ...newMessages];
+                    // Add tool result as a message
+                    setMessages(prev => [...prev, {
+                        id: Date.now(),
+                        role: 'tool_result',
+                        toolName,
+                        result,
+                        timestamp: new Date().toISOString(),
+                    }]);
+                },
+                onResponse: (content) => {
+                    // Add final assistant response
+                    setMessages(prev => [...prev, {
+                        id: assistantMessageId,
+                        role: 'assistant',
+                        content,
+                        timestamp: new Date().toISOString(),
+                    }]);
+                },
+                onError: (message) => {
+                    setError(message);
+                    setMessages(prev => [...prev, {
+                        id: Date.now(),
+                        role: 'assistant',
+                        content: `Sorry, an error occurred: ${message}`,
+                        isError: true,
+                        timestamp: new Date().toISOString(),
+                    }]);
+                },
+                onDone: () => {
+                    setCurrentToolCall(null);
+                },
             });
         } catch (err) {
             setError(err.message);
-            // Add error as assistant message
-            setMessages(prev => [
-                ...prev,
-                {
-                    id: Date.now() + 1,
-                    role: 'assistant',
-                    content: `Sorry, an error occurred: ${err.message}`,
-                    isError: true,
-                    timestamp: new Date().toISOString(),
-                },
-            ]);
+            setMessages(prev => [...prev, {
+                id: Date.now(),
+                role: 'assistant',
+                content: `Sorry, an error occurred: ${err.message}`,
+                isError: true,
+                timestamp: new Date().toISOString(),
+            }]);
         } finally {
             setIsLoading(false);
+            setCurrentToolCall(null);
         }
-    }, []);
+    }, [sessionId]);
 
     const clearMessages = useCallback(() => {
         setMessages([]);
         setError(null);
+        setSessionId(null);
+        setCurrentToolCall(null);
     }, []);
 
     return {
         messages,
         isLoading,
         error,
+        sessionId,
+        currentToolCall,
         sendMessage,
         clearMessages,
     };
 }
+

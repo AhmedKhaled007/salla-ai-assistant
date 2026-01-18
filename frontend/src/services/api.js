@@ -1,17 +1,19 @@
-const API_BASE_URL = 'http://localhost:8000';
+// Use environment variable with fallback for local development
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 /**
- * Send a query to the AI agent
+ * Send a query to the AI agent (non-streaming)
  * @param {string} query - The user's query
- * @returns {Promise<{messages: Array}>} - The response messages
+ * @param {string|null} sessionId - Optional session ID
+ * @returns {Promise<{session_id: string, messages: Array}>} - The response
  */
-export async function sendQuery(query) {
+export async function sendQuery(query, sessionId = null) {
     const response = await fetch(`${API_BASE_URL}/query`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({ query, session_id: sessionId }),
     });
 
     if (!response.ok) {
@@ -23,6 +25,84 @@ export async function sendQuery(query) {
 }
 
 /**
+ * Send a query with SSE streaming
+ * @param {string} query - The user's query
+ * @param {string|null} sessionId - Optional session ID
+ * @param {object} callbacks - Event callbacks
+ * @param {function} callbacks.onSession - Called with session_id
+ * @param {function} callbacks.onToolCall - Called with {tool_name, tool_args}
+ * @param {function} callbacks.onToolResult - Called with {tool_name, result}
+ * @param {function} callbacks.onResponse - Called with response content
+ * @param {function} callbacks.onError - Called with error message
+ * @param {function} callbacks.onDone - Called when complete
+ * @returns {Promise<void>}
+ */
+export async function sendQueryStream(query, sessionId = null, callbacks = {}) {
+    const response = await fetch(`${API_BASE_URL}/query/stream`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query, session_id: sessionId }),
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || 'Failed to send query');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+            if (line.startsWith('data: ')) {
+                try {
+                    const event = JSON.parse(line.slice(6));
+
+                    switch (event.type) {
+                        case 'session':
+                            callbacks.onSession?.(event.session_id);
+                            break;
+                        case 'tool_call':
+                            callbacks.onToolCall?.({
+                                toolName: event.tool_name,
+                                toolArgs: event.tool_args,
+                            });
+                            break;
+                        case 'tool_result':
+                            callbacks.onToolResult?.({
+                                toolName: event.tool_name,
+                                result: event.result,
+                            });
+                            break;
+                        case 'response':
+                            callbacks.onResponse?.(event.content);
+                            break;
+                        case 'error':
+                            callbacks.onError?.(event.message);
+                            break;
+                        case 'done':
+                            callbacks.onDone?.(event.session_id);
+                            break;
+                    }
+                } catch (e) {
+                    console.error('Failed to parse SSE event:', e);
+                }
+            }
+        }
+    }
+}
+
+/**
  * Get available tools from the agent
  * @returns {Promise<{tools: Array}>} - List of available tools
  */
@@ -31,6 +111,20 @@ export async function getTools() {
 
     if (!response.ok) {
         throw new Error('Failed to fetch tools');
+    }
+
+    return response.json();
+}
+
+/**
+ * Check backend health status
+ * @returns {Promise<{status: string, mcp_connected: boolean, mcp_responsive: boolean}>}
+ */
+export async function checkHealth() {
+    const response = await fetch(`${API_BASE_URL}/health`);
+
+    if (!response.ok) {
+        throw new Error('Health check failed');
     }
 
     return response.json();
