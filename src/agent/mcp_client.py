@@ -7,6 +7,8 @@ import os
 import uuid
 from datetime import datetime
 
+import aiofiles
+
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 import litellm
@@ -320,12 +322,13 @@ class MCPClient:
             raise
 
     async def _log_conversation(self, session_id: str, messages: list):
-        """Save conversation to a JSON file."""
+        """Save conversation to a JSON file asynchronously."""
         os.makedirs("conversations", exist_ok=True)
         filepath = os.path.join("conversations", f"conversation_{self._conversation_id}.json")
         
         try:
-            with open(filepath, "w") as f:
-                json.dump({"session_id": session_id, "messages": messages}, f, indent=2, default=str)
+            async with aiofiles.open(filepath, "w") as f:
+                content = json.dumps({"session_id": session_id, "messages": messages}, indent=2, default=str)
+                await f.write(content)
         except Exception as e:
             logger.error(f"Error writing conversation: {e}")
