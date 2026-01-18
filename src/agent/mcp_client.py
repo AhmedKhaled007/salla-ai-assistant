@@ -323,8 +323,8 @@ class MCPClient:
 
     async def _log_conversation(self, session_id: str, messages: list):
         """Save conversation to a JSON file asynchronously."""
-        os.makedirs("conversations", exist_ok=True)
-        filepath = os.path.join("conversations", f"conversation_{self._conversation_id}.json")
+        os.makedirs(settings.conversation_log_dir, exist_ok=True)
+        filepath = os.path.join(settings.conversation_log_dir, f"conversation_{self._conversation_id}.json")
         
         try:
             async with aiofiles.open(filepath, "w") as f:

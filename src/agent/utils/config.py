@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["text", "json"] = "text"
     log_file: str | None = None
+    conversation_log_dir: str = "conversations"  # Directory for conversation logs
 
 
 # Global settings instance
