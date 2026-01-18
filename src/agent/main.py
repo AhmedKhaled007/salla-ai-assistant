@@ -42,6 +42,7 @@ app.add_middleware(
 
 class QueryRequest(BaseModel):
     query: str
+    session_id: str | None = None  # Optional: continue existing session
 
 
 class Message(BaseModel):
@@ -56,10 +57,16 @@ class ToolCall(BaseModel):
 
 @app.post("/query")
 async def process_query(request: QueryRequest):
-    """Process a query and return the response"""
+    """Process a query and return the response.
+    
+    If session_id is provided, continues the existing conversation.
+    Otherwise, starts a new session.
+    """
     try:
-        messages = await app.state.client.process_query(request.query)
-        return {"messages": messages}
+        session_id, messages = await app.state.client.process_query(
+            request.query, request.session_id
+        )
+        return {"session_id": session_id, "messages": messages}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -81,6 +88,40 @@ async def get_tools():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Session Management Endpoints
+
+@app.post("/sessions")
+async def create_session():
+    """Create a new conversation session."""
+    session_id = app.state.client.create_session()
+    return {"session_id": session_id}
+
+
+@app.get("/sessions")
+async def list_sessions():
+    """List all active session IDs."""
+    sessions = app.state.client.list_sessions()
+    return {"sessions": sessions}
+
+
+@app.get("/sessions/{session_id}")
+async def get_session(session_id: str):
+    """Get messages for a specific session."""
+    messages = app.state.client.get_session(session_id)
+    if messages is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"session_id": session_id, "messages": messages}
+
+
+@app.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """Delete a conversation session."""
+    deleted = app.state.client.delete_session(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"message": "Session deleted"}
 
 
 if __name__ == "__main__":

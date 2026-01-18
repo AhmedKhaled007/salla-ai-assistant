@@ -4,6 +4,7 @@ import asyncio
 import traceback
 import json
 import os
+import uuid
 from datetime import datetime
 
 from mcp import ClientSession, StdioServerParameters
@@ -21,8 +22,31 @@ class MCPClient:
         self.session: Optional[ClientSession] = None
         self.exit_stack = AsyncExitStack()
         self.tools = []
-        self.messages = []
+        self._sessions: dict[str, list] = {}  # session_id -> messages
         self._lock = asyncio.Lock()  # Serialize concurrent requests
+
+    def create_session(self) -> str:
+        """Create a new conversation session and return its ID."""
+        session_id = str(uuid.uuid4())
+        self._sessions[session_id] = []
+        logger.info(f"Created session: {session_id}")
+        return session_id
+
+    def get_session(self, session_id: str) -> list | None:
+        """Get messages for a session. Returns None if session doesn't exist."""
+        return self._sessions.get(session_id)
+
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a session. Returns True if session existed."""
+        if session_id in self._sessions:
+            del self._sessions[session_id]
+            logger.info(f"Deleted session: {session_id}")
+            return True
+        return False
+
+    def list_sessions(self) -> list[str]:
+        """List all active session IDs."""
+        return list(self._sessions.keys())
 
     # connect to the MCP server
     async def connect_to_server(self, server_script_path: str):
@@ -83,21 +107,40 @@ class MCPClient:
             raise
 
     # process query
-    async def process_query(self, query: str):
-        async with self._lock:  # Prevent concurrent access to messages
+    async def process_query(self, query: str, session_id: str | None = None):
+        """Process a query, optionally continuing an existing session.
+        
+        Args:
+            query: The user's query
+            session_id: Optional session ID. If None, creates a new session.
+                       If provided, continues the existing conversation.
+        
+        Returns:
+            Tuple of (session_id, messages)
+        """
+        async with self._lock:  # Prevent concurrent access to sessions
             try:
-                # New conversation ID for each query
-                self._conversation_id = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                # Get or create session
+                if session_id and session_id in self._sessions:
+                    messages = self._sessions[session_id]
+                    logger.info(f"Continuing session: {session_id}")
+                else:
+                    session_id = self.create_session()
+                    messages = self._sessions[session_id]
+                    # Add system message for new sessions
+                    messages.append({"role": "system", "content": SYSTEM_PROMPT})
+
+                # Conversation ID for logging
+                self._conversation_id = f"{session_id}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
                 
                 logger.info(f"Processing query: {query}")
-                system_message = {"role": "system", "content": SYSTEM_PROMPT}
                 user_message = {"role": "user", "content": query}
-                self.messages = [system_message, user_message]
+                messages.append(user_message)
 
                 iteration = 0
                 while iteration < settings.max_iterations:
                     iteration += 1
-                    response = await self.call_llm()
+                    response = await self._call_llm(messages)
                     message = response.choices[0].message
 
                     # the response is a text message
@@ -106,12 +149,12 @@ class MCPClient:
                             "role": "assistant",
                             "content": message.content,
                         }
-                        self.messages.append(assistant_message)
+                        messages.append(assistant_message)
                         break
 
                     # the response is a tool call
                     assistant_message = message.model_dump()
-                    self.messages.append(assistant_message)
+                    messages.append(assistant_message)
 
                     for tool_call in message.tool_calls:
                         tool_name = tool_call.function.name
@@ -128,7 +171,7 @@ class MCPClient:
                             logger.error(f"Tool {tool_name} failed: {e}")
                             tool_content = f"Error: Tool '{tool_name}' failed with error: {str(e)}"
                         
-                        self.messages.append({
+                        messages.append({
                             "role": "tool",
                             "tool_call_id": tool_use_id,
                             "content": tool_content,
@@ -136,26 +179,27 @@ class MCPClient:
                 else:
                     # Max iterations reached
                     logger.warning(f"Max iterations ({settings.max_iterations}) reached")
-                    self.messages.append({
+                    messages.append({
                         "role": "assistant",
                         "content": "I apologize, but I've reached the maximum number of steps for this query. Please try breaking down your request into smaller parts.",
                     })
 
-                await self.log_conversation()
-                return self.messages
+                await self._log_conversation(session_id, messages)
+                return session_id, messages
 
             except Exception as e:
                 logger.error(f"Error processing query: {e}")
                 raise
 
     # call llm
-    async def call_llm(self):
+    async def _call_llm(self, messages: list):
+        """Internal method to call the LLM with given messages."""
         try:
             logger.info(f"Calling LLM: {settings.llm_model}")
             return await litellm.acompletion(
                 model=settings.llm_model,
                 temperature=settings.llm_temperature,
-                messages=self.messages,
+                messages=messages,
                 tools=self.tools,
             )
         except Exception as e:
@@ -172,13 +216,13 @@ class MCPClient:
             traceback.print_exc()
             raise
 
-    async def log_conversation(self):
+    async def _log_conversation(self, session_id: str, messages: list):
         """Save conversation to a JSON file."""
         os.makedirs("conversations", exist_ok=True)
         filepath = os.path.join("conversations", f"conversation_{self._conversation_id}.json")
         
         try:
             with open(filepath, "w") as f:
-                json.dump(self.messages, f, indent=2, default=str)
+                json.dump({"session_id": session_id, "messages": messages}, f, indent=2, default=str)
         except Exception as e:
             logger.error(f"Error writing conversation: {e}")
