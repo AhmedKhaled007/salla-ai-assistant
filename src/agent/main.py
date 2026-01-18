@@ -42,6 +42,44 @@ app.add_middleware(
 )
 
 
+# Simple in-memory rate limiting
+from collections import defaultdict
+import time
+
+_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request, call_next):
+    """Rate limiting middleware based on client IP."""
+    if not settings.rate_limit_enabled:
+        return await call_next(request)
+    
+    # Get client IP (use X-Forwarded-For if behind proxy)
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown")
+    if "," in client_ip:
+        client_ip = client_ip.split(",")[0].strip()
+    
+    now = time.time()
+    window_start = now - settings.rate_limit_window
+    
+    # Clean old entries and add current request
+    _rate_limit_store[client_ip] = [
+        t for t in _rate_limit_store[client_ip] if t > window_start
+    ]
+    
+    if len(_rate_limit_store[client_ip]) >= settings.rate_limit_requests:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Rate limit exceeded. Please try again later."},
+            headers={"Retry-After": str(settings.rate_limit_window)}
+        )
+    
+    _rate_limit_store[client_ip].append(now)
+    return await call_next(request)
+
+
 class QueryRequest(BaseModel):
     """Request model for query endpoint with validation."""
     query: str = Field(

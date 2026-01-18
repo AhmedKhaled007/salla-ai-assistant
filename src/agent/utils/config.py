@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     # CORS Configuration
     allowed_origins: str = "http://localhost:3000,http://localhost:5173"  # Comma-separated origins
 
+    # Rate Limiting Configuration
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = 60  # Max requests per window
+    rate_limit_window: int = 60  # Window size in seconds
+
     # Logging Configuration
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["text", "json"] = "text"
