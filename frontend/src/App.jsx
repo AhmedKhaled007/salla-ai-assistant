@@ -2,12 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './components/layout/Sidebar';
 import { ChatContainer } from './components/chat/ChatContainer';
 import { useChat } from './hooks/useChat';
+import { useToast } from './components/ui/Toast';
 import { getSessions, getSession, deleteSession, checkHealth } from './services/api';
 
 function App() {
   const { messages, isLoading, sessionId, sendMessage, clearMessages, setMessages, setSessionId } = useChat();
   const [sessions, setSessions] = useState([]);
   const [healthStatus, setHealthStatus] = useState(null);
+  const { showError, showSuccess, showWarning } = useToast();
 
   // Fetch sessions on mount
   useEffect(() => {
@@ -16,6 +18,7 @@ function App() {
         const data = await getSessions();
         setSessions(data.sessions || []);
       } catch (err) {
+        // Silent fail for session fetch - not critical
         console.error('Failed to fetch sessions:', err);
       }
     };
@@ -24,14 +27,18 @@ function App() {
       try {
         const health = await checkHealth();
         setHealthStatus(health);
+        if (health.status === 'degraded') {
+          showWarning('Backend connection is degraded');
+        }
       } catch (err) {
         setHealthStatus({ status: 'error', mcp_connected: false });
+        showError('Cannot connect to backend server');
       }
     };
 
     fetchSessions();
     fetchHealth();
-  }, []);
+  }, [showError, showWarning]);
 
   // Refresh sessions when current session changes
   useEffect(() => {
@@ -63,9 +70,9 @@ function App() {
         setMessages(formattedMessages);
       }
     } catch (err) {
-      console.error('Failed to load session:', err);
+      showError('Failed to load conversation');
     }
-  }, [setMessages, setSessionId]);
+  }, [setMessages, setSessionId, showError]);
 
   // Delete a session
   const handleDeleteSession = useCallback(async (id) => {
@@ -75,10 +82,11 @@ function App() {
       if (sessionId === id) {
         clearMessages();
       }
+      showSuccess('Conversation deleted');
     } catch (err) {
-      console.error('Failed to delete session:', err);
+      showError('Failed to delete conversation');
     }
-  }, [sessionId, clearMessages]);
+  }, [sessionId, clearMessages, showError, showSuccess]);
 
   // Quick action handlers
   const handleQuickAction = useCallback((query) => {
