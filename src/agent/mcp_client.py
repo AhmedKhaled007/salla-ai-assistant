@@ -19,13 +19,34 @@ from .prompts import SYSTEM_PROMPT
 
 
 class MCPClient:
-    def __init__(self):
-        # Initialize session and client objects
+    """MCP (Model Context Protocol) client for communicating with tool servers.
+    
+    This client connects to an MCP server via stdio and provides methods for:
+    - Processing user queries using an LLM with tool access
+    - Managing conversation sessions for multi-turn interactions
+    - Streaming responses for real-time UI updates
+    
+    Attributes:
+        session: The MCP ClientSession for communicating with the server.
+        tools: List of available tools from the MCP server.
+    
+    Example:
+        ```python
+        client = MCPClient()
+        await client.connect_to_server("path/to/server.py")
+        session_id, messages = await client.process_query("Hello!")
+        await client.cleanup()
+        ```
+    """
+    
+    def __init__(self) -> None:
+        """Initialize the MCP client with empty session and tools."""
         self.session: Optional[ClientSession] = None
-        self.exit_stack = AsyncExitStack()
-        self.tools = []
-        self._sessions: dict[str, list] = {}  # session_id -> messages
-        self._lock = asyncio.Lock()  # Serialize concurrent requests
+        self.exit_stack: AsyncExitStack = AsyncExitStack()
+        self.tools: list[dict] = []
+        self._sessions: dict[str, list[dict]] = {}  # session_id -> messages
+        self._lock: asyncio.Lock = asyncio.Lock()  # Serialize concurrent requests
+        self._conversation_id: str = ""
 
     def create_session(self) -> str:
         """Create a new conversation session and return its ID."""
@@ -50,8 +71,19 @@ class MCPClient:
         """List all active session IDs."""
         return list(self._sessions.keys())
 
-    # connect to the MCP server
-    async def connect_to_server(self, server_script_path: str):
+    async def connect_to_server(self, server_script_path: str) -> bool:
+        """Connect to an MCP server.
+        
+        Args:
+            server_script_path: Path to the server script (.py or .js file).
+        
+        Returns:
+            True if connection was successful.
+        
+        Raises:
+            ValueError: If server script is not a .py or .js file.
+            Exception: If connection fails.
+        """
         try:
             is_python = server_script_path.endswith(".py")
             is_js = server_script_path.endswith(".js")
@@ -99,8 +131,15 @@ class MCPClient:
             traceback.print_exc()
             raise
 
-    # get mcp tool list
-    async def get_mcp_tools(self):
+    async def get_mcp_tools(self) -> list:
+        """Get the list of available tools from the MCP server.
+        
+        Returns:
+            List of Tool objects from the MCP server.
+        
+        Raises:
+            Exception: If retrieving tools fails.
+        """
         try:
             response = await self.session.list_tools()
             return response.tools
@@ -108,17 +147,27 @@ class MCPClient:
             logger.error(f"Error getting MCP tools: {e}")
             raise
 
-    # process query
-    async def process_query(self, query: str, session_id: str | None = None):
-        """Process a query, optionally continuing an existing session.
+    async def process_query(
+        self, query: str, session_id: str | None = None
+    ) -> tuple[str, list[dict]]:
+        """Process a user query using the LLM with tool access.
+        
+        This method sends the query to the LLM, handles any tool calls,
+        and returns the complete conversation. If a session_id is provided,
+        the conversation continues from the existing session history.
         
         Args:
-            query: The user's query
-            session_id: Optional session ID. If None, creates a new session.
-                       If provided, continues the existing conversation.
+            query: The user's query text.
+            session_id: Optional session ID to continue an existing conversation.
+                       If None, a new session is created automatically.
         
         Returns:
-            Tuple of (session_id, messages)
+            A tuple of (session_id, messages) where:
+            - session_id: The session ID (new or existing)
+            - messages: List of message dicts with role and content
+        
+        Raises:
+            Exception: If LLM call or tool execution fails.
         """
         async with self._lock:  # Prevent concurrent access to sessions
             try:
