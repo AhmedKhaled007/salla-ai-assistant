@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     api_key_enabled: bool = False  # Enable API key auth (set to True in production)
     api_key: str | None = None  # Set API_KEY env var to enable authentication
 
+    # Salla OAuth Configuration
+    salla_client_id: str = ""  # Salla Partner App Client ID
+    salla_client_secret: str = ""  # Salla Partner App Client Secret
+    salla_redirect_uri: str = "http://localhost:5173/auth/callback"
+    salla_oauth_base_url: str = "https://accounts.salla.sa/oauth2"
+    salla_scopes: str = "offline_access"  # Space-separated OAuth scopes
+
     # Logging Configuration
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["text", "json"] = "text"

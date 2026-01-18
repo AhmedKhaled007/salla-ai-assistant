@@ -1,13 +1,41 @@
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { LoginPage } from './pages/LoginPage';
+import { AuthCallback } from './pages/AuthCallback';
 import { Sidebar } from './components/layout/Sidebar';
 import { ChatContainer } from './components/chat/ChatContainer';
 import { useChat } from './hooks/useChat';
-import { useToast } from './components/ui/Toast';
+import { useToast, ToastProvider } from './components/ui/Toast';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { getSessions, getSession, deleteSession, checkHealth } from './services/api';
 
-function App() {
+// Protected route wrapper
+function ProtectedRoute({ children }) {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-accent via-bg-secondary to-accent-light">
+        <div className="text-center">
+          <div className="w-12 h-12 mx-auto border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+          <p className="mt-4 text-text-muted">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+}
+
+// Main chat application content
+function ChatApp() {
   const { messages, isLoading, sessionId, sendMessage, clearMessages, setMessages, setSessionId } = useChat();
+  const { logout, merchantInfo } = useAuth();
   const [sessions, setSessions] = useState([]);
   const [healthStatus, setHealthStatus] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -103,6 +131,12 @@ function App() {
     sendMessage(query);
   }, [sendMessage]);
 
+  // Handle logout
+  const handleLogout = useCallback(async () => {
+    await logout();
+    showSuccess('Logged out successfully');
+  }, [logout, showSuccess]);
+
   return (
     <div className="flex min-h-screen w-full bg-gradient-to-b from-accent to-bg-primary overflow-hidden">
       <Sidebar
@@ -112,7 +146,9 @@ function App() {
         onLoadSession={handleLoadSession}
         onDeleteSession={handleDeleteSession}
         onQuickAction={handleQuickAction}
+        onLogout={handleLogout}
         healthStatus={healthStatus}
+        merchantInfo={merchantInfo}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
       />
@@ -141,6 +177,29 @@ function App() {
   );
 }
 
+// App wrapper with providers and routing
+function App() {
+  return (
+    <BrowserRouter>
+      <ToastProvider>
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <ChatApp />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </AuthProvider>
+      </ToastProvider>
+    </BrowserRouter>
+  );
+}
 
 export default App;
-

@@ -1,9 +1,6 @@
 /**
  * Sidebar component for navigation and conversation history
  */
-/**
- * Sidebar component for navigation and conversation history
- */
 export function Sidebar({
     onNewChat,
     sessions = [],
@@ -11,7 +8,9 @@ export function Sidebar({
     onLoadSession,
     onDeleteSession,
     onQuickAction,
+    onLogout,
     healthStatus,
+    merchantInfo,
     isOpen,
     onClose
 }) {
@@ -27,6 +26,11 @@ export function Sidebar({
         // Show first 8 chars of session ID
         return id.length > 8 ? `${id.slice(0, 8)}...` : id;
     };
+
+    // Get merchant display info
+    const merchantName = merchantInfo?.name || merchantInfo?.store_name || 'Merchant';
+    const storeName = merchantInfo?.store_name || merchantInfo?.domain || 'My Store';
+    const merchantInitial = merchantName.charAt(0).toUpperCase();
 
     return (
         <>
@@ -145,19 +149,34 @@ export function Sidebar({
                             </span>
                         </div>
                     )}
-                    <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center font-semibold text-text-inverse">
-                            A
+
+                    {/* Merchant Info & Logout */}
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center font-semibold text-text-inverse">
+                                {merchantInitial}
+                            </div>
+                            <div className="flex flex-col">
+                                <span className="text-sm font-medium text-text-primary">{merchantName}</span>
+                                <span className="text-xs text-text-muted">{storeName}</span>
+                            </div>
                         </div>
-                        <div className="flex flex-col">
-                            <span className="text-sm font-medium text-text-primary">Ahmed</span>
-                            <span className="text-xs text-text-muted">My Store</span>
-                        </div>
+
+                        {/* Logout Button */}
+                        {onLogout && (
+                            <button
+                                onClick={onLogout}
+                                className="p-2 text-text-muted hover:text-error hover:bg-error/10 rounded-lg transition-colors"
+                                title="Logout"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                                </svg>
+                            </button>
+                        )}
                     </div>
                 </div>
             </aside>
         </>
     );
 }
-
-

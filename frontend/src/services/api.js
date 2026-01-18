@@ -197,3 +197,74 @@ export async function deleteSession(sessionId) {
     return response.json();
 }
 
+
+// ============ Authentication ============
+
+/**
+ * Get the Salla OAuth authorization URL
+ * @returns {Promise<{auth_url: string}>}
+ */
+export async function getAuthUrl() {
+    const response = await fetch(`${API_BASE_URL}/auth/salla/url`);
+
+    if (!response.ok) {
+        throw new Error('Failed to get auth URL');
+    }
+
+    return response.json();
+}
+
+/**
+ * Exchange OAuth authorization code for tokens
+ * @param {string} code - The authorization code from Salla
+ * @returns {Promise<{success: boolean, merchant_info?: object, error?: string}>}
+ */
+export async function exchangeCode(code) {
+    const response = await fetch(`${API_BASE_URL}/auth/salla/callback`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ code }),
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || 'Failed to exchange code');
+    }
+
+    return response.json();
+}
+
+/**
+ * Check current authentication status
+ * @returns {Promise<{authenticated: boolean, merchant_info?: object}>}
+ */
+export async function checkAuthStatus() {
+    const response = await fetch(`${API_BASE_URL}/auth/status`, {
+        credentials: 'include',
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to check auth status');
+    }
+
+    return response.json();
+}
+
+/**
+ * Logout and clear session
+ * @returns {Promise<{success: boolean}>}
+ */
+export async function logout() {
+    const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to logout');
+    }
+
+    return response.json();
+}

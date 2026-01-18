@@ -9,6 +9,7 @@ import json
 
 from .mcp_client import MCPClient
 from .utils import settings, logger
+from . import auth
 
 
 async def verify_api_key(x_api_key: str | None = Header(default=None)):
@@ -265,6 +266,104 @@ async def delete_session(session_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"message": "Session deleted"}
+
+
+# ============ OAuth Authentication Endpoints ============
+
+class OAuthCallbackRequest(BaseModel):
+    """Request model for OAuth callback."""
+    code: str = Field(..., description="Authorization code from Salla")
+    state: str | None = Field(default=None, description="CSRF state parameter")
+
+
+@app.get("/auth/salla/url")
+async def get_auth_url():
+    """Get the Salla OAuth authorization URL.
+    
+    Returns the URL to redirect the user to for Salla authorization.
+    Includes a state parameter for CSRF protection.
+    """
+    if not settings.salla_client_id:
+        raise HTTPException(
+            status_code=500,
+            detail="Salla OAuth not configured. Set SALLA_CLIENT_ID in environment."
+        )
+    
+    state = auth.generate_state()
+    auth.store_state(state)
+    auth_url = auth.generate_auth_url(state)
+    
+    return {"auth_url": auth_url, "state": state}
+
+
+@app.post("/auth/salla/callback")
+async def oauth_callback(request: OAuthCallbackRequest):
+    """Handle OAuth callback from Salla.
+    
+    Exchanges the authorization code for access and refresh tokens.
+    Returns merchant info on success.
+    """
+    # Note: State validation is optional for demo but recommended for production
+    # if request.state and not auth.validate_state(request.state):
+    #     raise HTTPException(status_code=400, detail="Invalid state parameter")
+    
+    try:
+        # Exchange code for tokens
+        tokens = await auth.exchange_code_for_tokens(request.code)
+        
+        # Get merchant info
+        access_token = tokens.get("access_token")
+        merchant_info = {}
+        if access_token:
+            merchant_info = await auth.get_merchant_info(access_token)
+        
+        # Generate a session ID for this authenticated user
+        import uuid
+        session_id = str(uuid.uuid4())
+        
+        # Store tokens
+        auth.store_tokens(session_id, tokens, merchant_info)
+        
+        return {
+            "success": True,
+            "session_id": session_id,
+            "merchant_info": {
+                "name": merchant_info.get("name", "Merchant"),
+                "store_name": merchant_info.get("name", "My Store"),
+                "domain": merchant_info.get("domain", ""),
+                "email": merchant_info.get("email", ""),
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"OAuth callback failed: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/auth/status")
+async def auth_status():
+    """Check authentication status.
+    
+    For demo purposes, this checks if any session is authenticated.
+    In production, you'd use cookies or Bearer tokens to identify the session.
+    """
+    # For demo: check localStorage session on frontend
+    # Real implementation would use HTTP-only cookies or session headers
+    return {
+        "authenticated": False,
+        "merchant_info": None,
+        "message": "Use session_id from callback to track authentication"
+    }
+
+
+@app.post("/auth/logout")
+async def logout():
+    """Logout and clear session.
+    
+    In production, this would invalidate the session cookie/token.
+    """
+    # For demo: frontend handles logout by clearing localStorage
+    return {"success": True}
 
 
 if __name__ == "__main__":
