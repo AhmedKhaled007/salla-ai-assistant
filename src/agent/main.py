@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Dict, Any
 from contextlib import asynccontextmanager
 import json
@@ -43,8 +43,17 @@ app.add_middleware(
 
 
 class QueryRequest(BaseModel):
-    query: str
-    session_id: str | None = None  # Optional: continue existing session
+    """Request model for query endpoint with validation."""
+    query: str = Field(
+        ..., 
+        min_length=1, 
+        max_length=settings.max_query_length,
+        description="The user's query text"
+    )
+    session_id: str | None = Field(
+        default=None, 
+        description="Optional session ID to continue existing conversation"
+    )
 
 
 class Message(BaseModel):

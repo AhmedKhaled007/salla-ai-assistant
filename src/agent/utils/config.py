@@ -25,6 +25,8 @@ class Settings(BaseSettings):
 
     # Agent Configuration
     max_iterations: int = 10  # Max tool-calling iterations per query
+    max_query_length: int = 10000  # Max characters in query (prevent abuse)
+    llm_max_tokens: int | None = None  # Max tokens for LLM response (None = model default)
 
     # CORS Configuration
     allowed_origins: str = "http://localhost:3000,http://localhost:5173"  # Comma-separated origins
