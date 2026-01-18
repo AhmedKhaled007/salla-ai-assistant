@@ -4,6 +4,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Dict, Any
 from contextlib import asynccontextmanager
+import asyncio
 import json
 
 from .mcp_client import MCPClient
@@ -28,23 +29,47 @@ async def verify_api_key(x_api_key: str | None = Header(default=None)):
             headers={"WWW-Authenticate": "ApiKey"}
         )
 
+import signal
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager. Connects to MCP server on startup."""
+    """Application lifespan manager with graceful shutdown.
+    
+    Handles:
+    - MCP server connection on startup
+    - Graceful shutdown on SIGTERM/SIGINT
+    - Cleanup of resources
+    """
     client = MCPClient()
+    shutdown_event = asyncio.Event()
+    
+    def signal_handler(signum, frame):
+        """Handle shutdown signals gracefully."""
+        sig_name = signal.Signals(signum).name
+        logger.info(f"Received {sig_name}, initiating graceful shutdown...")
+        shutdown_event.set()
+    
+    # Register signal handlers
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, signal_handler)
+    
     try:
+        logger.info("Starting agent service...")
         connected = await client.connect_to_server(settings.server_script_path)
         if not connected:
             raise RuntimeError("Failed to connect to MCP server")
         app.state.client = client
+        logger.info("Agent service started successfully")
         yield
     except Exception as e:
         logger.error(f"Error during lifespan: {e}")
         raise RuntimeError(f"Startup failed: {e}") from e
     finally:
-        # shutdown
+        # Graceful shutdown
+        logger.info("Shutting down agent service...")
         await client.cleanup()
+        logger.info("Agent service shutdown complete")
 
 
 app = FastAPI(title="MCP Client API", lifespan=lifespan)
