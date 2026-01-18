@@ -8,3 +8,5 @@ wheels/
 .idea
 # Virtual environments
 .venv
+.env
+conversations
