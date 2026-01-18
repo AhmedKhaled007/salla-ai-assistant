@@ -193,18 +193,28 @@ class MCPClient:
 
     # call llm
     async def _call_llm(self, messages: list):
-        """Internal method to call the LLM with given messages."""
-        try:
-            logger.info(f"Calling LLM: {settings.llm_model}")
-            return await litellm.acompletion(
-                model=settings.llm_model,
-                temperature=settings.llm_temperature,
-                messages=messages,
-                tools=self.tools,
-            )
-        except Exception as e:
-            logger.error(f"Error calling LLM: {e}")
-            raise
+        """Internal method to call the LLM with exponential backoff retry."""
+        last_error = None
+        
+        for attempt in range(settings.llm_max_retries):
+            try:
+                logger.info(f"Calling LLM: {settings.llm_model} (attempt {attempt + 1}/{settings.llm_max_retries})")
+                return await litellm.acompletion(
+                    model=settings.llm_model,
+                    temperature=settings.llm_temperature,
+                    messages=messages,
+                    tools=self.tools,
+                )
+            except Exception as e:
+                last_error = e
+                if attempt < settings.llm_max_retries - 1:
+                    delay = settings.llm_retry_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(f"LLM call failed (attempt {attempt + 1}): {e}. Retrying in {delay}s...")
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"LLM call failed after {settings.llm_max_retries} attempts: {e}")
+        
+        raise last_error
 
     # cleanup
     async def cleanup(self):
