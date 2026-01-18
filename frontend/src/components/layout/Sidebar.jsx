@@ -1,6 +1,9 @@
 /**
  * Sidebar component for navigation and conversation history
  */
+/**
+ * Sidebar component for navigation and conversation history
+ */
 export function Sidebar({
     onNewChat,
     sessions = [],
@@ -8,7 +11,9 @@ export function Sidebar({
     onLoadSession,
     onDeleteSession,
     onQuickAction,
-    healthStatus
+    healthStatus,
+    isOpen,
+    onClose
 }) {
     // Quick action queries
     const quickActions = [
@@ -24,104 +29,135 @@ export function Sidebar({
     };
 
     return (
-        <aside className="w-[280px] h-screen flex flex-col bg-bg-primary border-r border-border shrink-0 shadow-sm">
-            {/* Header */}
-            <div className="p-6 border-b border-border">
-                <div className="flex items-center justify-center mb-6">
-                    <img src="/salla-logo.svg" alt="Salla" className="h-10 w-auto" />
-                </div>
-                <button
-                    onClick={onNewChat}
-                    className="w-full flex items-center justify-center gap-2 px-6 py-2 text-sm font-medium rounded-lg bg-primary text-text-inverse hover:bg-primary-dark hover:shadow-md transition-all"
-                >
-                    <span>+</span>
-                    New Chat
-                </button>
-            </div>
+        <>
+            {/* Mobile Overlay */}
+            <div
+                className={`fixed inset-0 bg-black/50 z-40 lg:hidden transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                    }`}
+                onClick={onClose}
+            />
 
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6">
-                {/* Quick Actions */}
-                <div className="mb-6">
-                    <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">
-                        Quick Actions
-                    </h3>
-                    <div className="flex flex-col gap-1">
-                        {quickActions.map((action, index) => (
-                            <button
-                                key={index}
-                                onClick={() => onQuickAction?.(action.query)}
-                                className="flex items-center gap-4 px-4 py-2 text-sm text-text-secondary rounded-lg hover:bg-accent hover:text-primary transition-all text-left"
-                            >
-                                <span>{action.icon}</span>
-                                <span>{action.label}</span>
-                            </button>
-                        ))}
+            {/* Sidebar Content */}
+            <aside className={`
+                fixed lg:relative z-50 w-[280px] h-screen flex flex-col bg-bg-primary border-r border-border shrink-0 shadow-sm transition-transform duration-300 lg:transform-none
+                ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+            `}>
+                {/* Header */}
+                <div className="p-6 border-b border-border flex flex-col gap-6 relative">
+                    {/* Mobile Close Button */}
+                    <button
+                        onClick={onClose}
+                        className="absolute right-4 top-4 p-2 text-text-secondary hover:text-primary lg:hidden"
+                    >
+                        ✕
+                    </button>
+
+                    <div className="flex items-center justify-center">
+                        <img src="/salla-logo.svg" alt="Salla" className="h-10 w-auto" />
                     </div>
+                    <button
+                        onClick={() => {
+                            onNewChat();
+                            onClose?.();
+                        }}
+                        className="w-full flex items-center justify-center gap-2 px-6 py-2 text-sm font-medium rounded-lg bg-primary text-text-inverse hover:bg-primary-dark hover:shadow-md transition-all"
+                    >
+                        <span>+</span>
+                        New Chat
+                    </button>
                 </div>
 
-                {/* Session History */}
-                {sessions.length > 0 && (
-                    <div>
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-6">
+                    {/* Quick Actions */}
+                    <div className="mb-6">
                         <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">
-                            Conversations
+                            Quick Actions
                         </h3>
                         <div className="flex flex-col gap-1">
-                            {sessions.slice(0, 10).map((id) => (
-                                <div
-                                    key={id}
-                                    className={`group flex items-center justify-between px-4 py-2 rounded-lg cursor-pointer transition-all ${currentSessionId === id
-                                            ? 'bg-accent text-primary'
-                                            : 'text-text-secondary hover:bg-accent/50'
-                                        }`}
-                                    onClick={() => onLoadSession?.(id)}
+                            {quickActions.map((action, index) => (
+                                <button
+                                    key={index}
+                                    onClick={() => {
+                                        onQuickAction?.(action.query);
+                                        onClose?.();
+                                    }}
+                                    className="flex items-center gap-4 px-4 py-2 text-sm text-text-secondary rounded-lg hover:bg-accent hover:text-primary transition-all text-left"
                                 >
-                                    <div className="flex items-center gap-3">
-                                        <span>💬</span>
-                                        <span className="text-sm font-mono">{formatSessionId(id)}</span>
-                                    </div>
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onDeleteSession?.(id);
-                                        }}
-                                        className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-error transition-all"
-                                        title="Delete conversation"
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
+                                    <span>{action.icon}</span>
+                                    <span>{action.label}</span>
+                                </button>
                             ))}
                         </div>
                     </div>
-                )}
-            </div>
 
-            {/* Footer */}
-            <div className="p-6 border-t border-border">
-                {/* Health Status */}
-                {healthStatus && (
-                    <div className="flex items-center gap-2 mb-4 text-xs">
-                        <span className={`w-2 h-2 rounded-full ${healthStatus.status === 'healthy' ? 'bg-success' :
+                    {/* Session History */}
+                    {sessions.length > 0 && (
+                        <div>
+                            <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">
+                                Conversations
+                            </h3>
+                            <div className="flex flex-col gap-1">
+                                {sessions.slice(0, 10).map((id) => (
+                                    <div
+                                        key={id}
+                                        className={`group flex items-center justify-between px-4 py-2 rounded-lg cursor-pointer transition-all ${currentSessionId === id
+                                            ? 'bg-accent text-primary'
+                                            : 'text-text-secondary hover:bg-accent/50'
+                                            }`}
+                                        onClick={() => {
+                                            onLoadSession?.(id);
+                                            onClose?.();
+                                        }}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <span>💬</span>
+                                            <span className="text-sm font-mono">{formatSessionId(id)}</span>
+                                        </div>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onDeleteSession?.(id);
+                                            }}
+                                            className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-error transition-all"
+                                            title="Delete conversation"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div className="p-6 border-t border-border">
+                    {/* Health Status */}
+                    {healthStatus && (
+                        <div className="flex items-center gap-2 mb-4 text-xs">
+                            <span className={`w-2 h-2 rounded-full ${healthStatus.status === 'healthy' ? 'bg-success' :
                                 healthStatus.status === 'degraded' ? 'bg-warning' : 'bg-error'
-                            }`}></span>
-                        <span className="text-text-muted">
-                            {healthStatus.status === 'healthy' ? 'Connected' :
-                                healthStatus.status === 'degraded' ? 'Degraded' : 'Disconnected'}
-                        </span>
-                    </div>
-                )}
-                <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center font-semibold text-text-inverse">
-                        A
-                    </div>
-                    <div className="flex flex-col">
-                        <span className="text-sm font-medium text-text-primary">Ahmed</span>
-                        <span className="text-xs text-text-muted">My Store</span>
+                                }`}></span>
+                            <span className="text-text-muted">
+                                {healthStatus.status === 'healthy' ? 'Connected' :
+                                    healthStatus.status === 'degraded' ? 'Degraded' : 'Disconnected'}
+                            </span>
+                        </div>
+                    )}
+                    <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center font-semibold text-text-inverse">
+                            A
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="text-sm font-medium text-text-primary">Ahmed</span>
+                            <span className="text-xs text-text-muted">My Store</span>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </aside>
+            </aside>
+        </>
     );
 }
+
 

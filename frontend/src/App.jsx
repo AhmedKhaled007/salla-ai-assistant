@@ -3,13 +3,23 @@ import { Sidebar } from './components/layout/Sidebar';
 import { ChatContainer } from './components/chat/ChatContainer';
 import { useChat } from './hooks/useChat';
 import { useToast } from './components/ui/Toast';
+import { useMediaQuery } from './hooks/useMediaQuery';
 import { getSessions, getSession, deleteSession, checkHealth } from './services/api';
 
 function App() {
   const { messages, isLoading, sessionId, sendMessage, clearMessages, setMessages, setSessionId } = useChat();
   const [sessions, setSessions] = useState([]);
   const [healthStatus, setHealthStatus] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { showError, showSuccess, showWarning } = useToast();
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
+
+  // Auto-close sidebar on desktop transition
+  useEffect(() => {
+    if (isDesktop) {
+      setIsSidebarOpen(false);
+    }
+  }, [isDesktop]);
 
   // Fetch sessions on mount
   useEffect(() => {
@@ -94,7 +104,7 @@ function App() {
   }, [sendMessage]);
 
   return (
-    <div className="flex min-h-screen w-full bg-gradient-to-b from-accent to-bg-primary">
+    <div className="flex min-h-screen w-full bg-gradient-to-b from-accent to-bg-primary overflow-hidden">
       <Sidebar
         onNewChat={clearMessages}
         sessions={sessions}
@@ -103,17 +113,34 @@ function App() {
         onDeleteSession={handleDeleteSession}
         onQuickAction={handleQuickAction}
         healthStatus={healthStatus}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
-      <main className="flex-1 flex flex-col bg-gradient-to-br from-accent/30 via-transparent to-accent/10">
-        <ChatContainer
-          messages={messages}
-          isLoading={isLoading}
-          onSendMessage={sendMessage}
-        />
+
+      <main className="flex-1 flex flex-col bg-gradient-to-br from-accent/30 via-transparent to-accent/10 relative w-full h-full overflow-hidden">
+        {/* Mobile Header */}
+        <div className="lg:hidden flex items-center p-4 border-b border-border bg-bg-primary/80 backdrop-blur-sm z-30 absolute top-0 left-0 right-0 h-16">
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="p-2 -ml-2 text-text-primary hover:bg-accent rounded-lg"
+          >
+            <span className="text-xl">☰</span>
+          </button>
+          <div className="ml-4 font-semibold text-text-primary">Salla Agent</div>
+        </div>
+
+        <div className="flex-1 lg:pt-0 pt-16 h-full flex flex-col">
+          <ChatContainer
+            messages={messages}
+            isLoading={isLoading}
+            onSendMessage={sendMessage}
+          />
+        </div>
       </main>
     </div>
   );
 }
+
 
 export default App;
 
