@@ -1,5 +1,10 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal
+from pathlib import Path
+
+
+# Get project root (assuming config is at src/agent/utils/config.py)
+_PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 
 
 class Settings(BaseSettings):
@@ -11,8 +16,8 @@ class Settings(BaseSettings):
     llm_max_retries: int = 3  # Max retry attempts for LLM calls
     llm_retry_delay: float = 1.0  # Base delay in seconds (exponential backoff)
 
-    # MCP Server Configuration
-    server_script_path: str = "/home/ahmed/projects/salla-agent/src/mcp_server/main.py"
+    # MCP Server Configuration (relative to project root, or set SERVER_SCRIPT_PATH env var)
+    server_script_path: str = str(_PROJECT_ROOT / "src" / "mcp_server" / "main.py")
 
     # API Server Configuration
     api_host: str = "0.0.0.0"
