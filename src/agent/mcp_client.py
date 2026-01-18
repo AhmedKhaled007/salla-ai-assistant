@@ -47,6 +47,57 @@ class MCPClient:
         self._sessions: dict[str, list[dict]] = {}  # session_id -> messages
         self._lock: asyncio.Lock = asyncio.Lock()  # Serialize concurrent requests
         self._conversation_id: str = ""
+        self._server_script_path: str = ""  # Store for reconnection
+
+    @property
+    def is_connected(self) -> bool:
+        """Check if the MCP server connection is active."""
+        return self.session is not None
+
+    async def ping(self) -> bool:
+        """Ping the MCP server to check if it's responsive.
+        
+        Returns:
+            True if server responds, False otherwise.
+        """
+        if not self.session:
+            return False
+        try:
+            # Try to list tools as a health check
+            await asyncio.wait_for(self.session.list_tools(), timeout=5.0)
+            return True
+        except Exception as e:
+            logger.warning(f"MCP server ping failed: {e}")
+            return False
+
+    async def ensure_connected(self) -> bool:
+        """Ensure connection to MCP server, reconnecting if necessary.
+        
+        Returns:
+            True if connected (or reconnected successfully).
+        
+        Raises:
+            RuntimeError: If reconnection fails.
+        """
+        if await self.ping():
+            return True
+        
+        if not self._server_script_path:
+            raise RuntimeError("Cannot reconnect: no server script path stored")
+        
+        logger.warning("MCP server connection lost, attempting to reconnect...")
+        
+        # Cleanup and reconnect
+        try:
+            await self.cleanup()
+        except Exception:
+            pass  # Ignore cleanup errors
+        
+        # Reset state
+        self.exit_stack = AsyncExitStack()
+        self.session = None
+        
+        return await self.connect_to_server(self._server_script_path)
 
     def create_session(self) -> str:
         """Create a new conversation session and return its ID."""
@@ -85,6 +136,9 @@ class MCPClient:
             Exception: If connection fails.
         """
         try:
+            # Store path for potential reconnection
+            self._server_script_path = server_script_path
+            
             is_python = server_script_path.endswith(".py")
             is_js = server_script_path.endswith(".js")
             if not (is_python or is_js):

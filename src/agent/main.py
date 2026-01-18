@@ -152,13 +152,16 @@ class ToolCall(BaseModel):
 async def health_check():
     """Health check endpoint for load balancer probes.
     
+    Performs live ping to MCP server to verify connectivity.
     Returns MCP connection status, LLM availability, and service info.
     """
-    mcp_connected = app.state.client.session is not None
+    # Perform live ping check
+    mcp_responsive = await app.state.client.ping()
     
     return {
-        "status": "healthy" if mcp_connected else "degraded",
-        "mcp_connected": mcp_connected,
+        "status": "healthy" if mcp_responsive else "degraded",
+        "mcp_connected": app.state.client.is_connected,
+        "mcp_responsive": mcp_responsive,
         "llm_model": settings.llm_model,
         "active_sessions": len(app.state.client.list_sessions()),
     }
