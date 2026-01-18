@@ -172,4 +172,4 @@ class MCPClient:
             with open(filepath, "w") as f:
                 json.dump(self.messages, f, indent=2, default=str)
         except Exception as e:
-            self.logger.error(f"Error writing conversation: {e}")
+            logger.error(f"Error writing conversation: {e}")
