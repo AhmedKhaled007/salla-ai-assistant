@@ -94,7 +94,9 @@ class MCPClient:
                 user_message = {"role": "user", "content": query}
                 self.messages = [system_message, user_message]
 
-                while True:
+                iteration = 0
+                while iteration < settings.max_iterations:
+                    iteration += 1
                     response = await self.call_llm()
                     message = response.choices[0].message
 
@@ -131,6 +133,13 @@ class MCPClient:
                             "tool_call_id": tool_use_id,
                             "content": tool_content,
                         })
+                else:
+                    # Max iterations reached
+                    logger.warning(f"Max iterations ({settings.max_iterations}) reached")
+                    self.messages.append({
+                        "role": "assistant",
+                        "content": "I apologize, but I've reached the maximum number of steps for this query. Please try breaking down your request into smaller parts.",
+                    })
 
                 await self.log_conversation()
                 return self.messages
