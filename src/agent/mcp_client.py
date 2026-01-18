@@ -191,6 +191,86 @@ class MCPClient:
                 logger.error(f"Error processing query: {e}")
                 raise
 
+    async def process_query_stream(self, query: str, session_id: str | None = None):
+        """Process a query with streaming, yielding events for each step.
+        
+        Yields dictionaries with event types:
+        - {"type": "session", "session_id": str}
+        - {"type": "tool_call", "tool_name": str, "tool_args": dict}
+        - {"type": "tool_result", "tool_name": str, "result": str}
+        - {"type": "response", "content": str}
+        - {"type": "error", "message": str}
+        - {"type": "done", "session_id": str}
+        """
+        async with self._lock:
+            try:
+                # Get or create session
+                if session_id and session_id in self._sessions:
+                    messages = self._sessions[session_id]
+                    logger.info(f"Continuing session: {session_id}")
+                else:
+                    session_id = self.create_session()
+                    messages = self._sessions[session_id]
+                    messages.append({"role": "system", "content": SYSTEM_PROMPT})
+
+                yield {"type": "session", "session_id": session_id}
+                
+                self._conversation_id = f"{session_id}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+                
+                logger.info(f"Processing query (streaming): {query}")
+                messages.append({"role": "user", "content": query})
+
+                iteration = 0
+                while iteration < settings.max_iterations:
+                    iteration += 1
+                    response = await self._call_llm(messages)
+                    message = response.choices[0].message
+
+                    if not message.tool_calls:
+                        assistant_message = {
+                            "role": "assistant",
+                            "content": message.content,
+                        }
+                        messages.append(assistant_message)
+                        yield {"type": "response", "content": message.content}
+                        break
+
+                    assistant_message = message.model_dump()
+                    messages.append(assistant_message)
+
+                    for tool_call in message.tool_calls:
+                        tool_name = tool_call.function.name
+                        tool_args = json.loads(tool_call.function.arguments)
+                        tool_use_id = tool_call.id
+                        
+                        yield {"type": "tool_call", "tool_name": tool_name, "tool_args": tool_args}
+                        
+                        try:
+                            result = await self.session.call_tool(tool_name, tool_args)
+                            tool_content = str(result.content)
+                            yield {"type": "tool_result", "tool_name": tool_name, "result": tool_content[:500]}
+                        except Exception as e:
+                            tool_content = f"Error: Tool '{tool_name}' failed: {str(e)}"
+                            yield {"type": "tool_result", "tool_name": tool_name, "result": tool_content}
+                        
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_use_id,
+                            "content": tool_content,
+                        })
+                else:
+                    logger.warning(f"Max iterations ({settings.max_iterations}) reached")
+                    max_iter_msg = "I apologize, but I've reached the maximum number of steps for this query."
+                    messages.append({"role": "assistant", "content": max_iter_msg})
+                    yield {"type": "response", "content": max_iter_msg}
+
+                await self._log_conversation(session_id, messages)
+                yield {"type": "done", "session_id": session_id}
+
+            except Exception as e:
+                logger.error(f"Error processing query (streaming): {e}")
+                yield {"type": "error", "message": str(e)}
+
     # call llm
     async def _call_llm(self, messages: list):
         """Internal method to call the LLM with exponential backoff retry."""

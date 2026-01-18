@@ -1,8 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Dict, Any
 from contextlib import asynccontextmanager
+import json
 
 from .mcp_client import MCPClient
 from .utils import settings, logger
@@ -86,6 +88,34 @@ async def process_query(request: QueryRequest):
         return {"session_id": session_id, "messages": messages}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/query/stream")
+async def process_query_stream(request: QueryRequest):
+    """Process a query with Server-Sent Events streaming.
+    
+    Returns events as they happen:
+    - session: Initial session ID
+    - tool_call: When a tool is being called
+    - tool_result: Result from a tool call
+    - response: Final assistant response
+    - error: If an error occurs
+    - done: When processing is complete
+    """
+    async def event_generator():
+        async for event in app.state.client.process_query_stream(
+            request.query, request.session_id
+        ):
+            yield f"data: {json.dumps(event)}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
 
 
 @app.get("/tools")
