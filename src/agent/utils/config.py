@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     rate_limit_requests: int = 60  # Max requests per window
     rate_limit_window: int = 60  # Window size in seconds
 
+    # Authentication Configuration
+    api_key_enabled: bool = False  # Enable API key auth (set to True in production)
+    api_key: str | None = None  # Set API_KEY env var to enable authentication
+
     # Logging Configuration
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["text", "json"] = "text"

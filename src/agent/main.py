@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -8,6 +8,25 @@ import json
 
 from .mcp_client import MCPClient
 from .utils import settings, logger
+
+
+async def verify_api_key(x_api_key: str | None = Header(default=None)):
+    """Verify API key if authentication is enabled."""
+    if not settings.api_key_enabled:
+        return  # Auth disabled
+    
+    if not settings.api_key:
+        raise HTTPException(
+            status_code=500, 
+            detail="API key authentication enabled but no API_KEY configured"
+        )
+    
+    if x_api_key != settings.api_key:
+        raise HTTPException(
+            status_code=401, 
+            detail="Invalid or missing API key",
+            headers={"WWW-Authenticate": "ApiKey"}
+        )
 
 
 @asynccontextmanager
@@ -120,12 +139,13 @@ async def health_check():
     }
 
 
-@app.post("/query")
+@app.post("/query", dependencies=[Depends(verify_api_key)])
 async def process_query(request: QueryRequest):
     """Process a query and return the response.
     
     If session_id is provided, continues the existing conversation.
     Otherwise, starts a new session.
+    Requires X-API-Key header if authentication is enabled.
     """
     try:
         session_id, messages = await app.state.client.process_query(
@@ -136,7 +156,7 @@ async def process_query(request: QueryRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/query/stream")
+@app.post("/query/stream", dependencies=[Depends(verify_api_key)])
 async def process_query_stream(request: QueryRequest):
     """Process a query with Server-Sent Events streaming.
     
@@ -147,6 +167,8 @@ async def process_query_stream(request: QueryRequest):
     - response: Final assistant response
     - error: If an error occurs
     - done: When processing is complete
+    
+    Requires X-API-Key header if authentication is enabled.
     """
     async def event_generator():
         async for event in app.state.client.process_query_stream(
