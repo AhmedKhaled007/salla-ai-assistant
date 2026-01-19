@@ -1,9 +1,9 @@
 """Salla MCP Server - Core e-commerce tools for AI agents."""
 import json
 from typing import Any
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
 
-from .salla_client import salla_client, SallaAPIError
+from .salla_client import salla_client, SallaAPIError, set_access_token
 
 
 # Initialize MCP server
@@ -20,6 +20,24 @@ def format_error(error: Exception) -> str:
     if isinstance(error, SallaAPIError):
         return f"API Error ({error.status_code}): {error.message}"
     return f"Error: {str(error)}"
+
+
+async def extract_token_from_context(ctx: Context) -> None:
+    """Extract access token from request context and set for current request.
+    
+    For SSE transport, the token is passed in the Authorization header.
+    This function extracts it and sets it in the context variable for salla_client.
+    """
+    try:
+        request = ctx.get_http_request()
+        if request:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:]  # Remove "Bearer " prefix
+                set_access_token(token)
+    except Exception:
+        # If not in HTTP context (stdio transport), ignore
+        pass
 
 
 # =============================================================================
@@ -401,4 +419,26 @@ async def get_store_info() -> str:
 # =============================================================================
 
 if __name__ == "__main__":
-    mcp.run()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Salla MCP Server")
+    parser.add_argument(
+        "--transport", 
+        choices=["stdio", "sse"], 
+        default="stdio",
+        help="Transport to use (stdio for dev, sse for production)"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8001,
+        help="Port for SSE transport (default: 8001)"
+    )
+    args = parser.parse_args()
+    
+    if args.transport == "sse":
+        # Run with SSE transport for HTTP-based communication
+        mcp.run(transport="sse", sse_port=args.port)
+    else:
+        # Run with stdio for local development
+        mcp.run()

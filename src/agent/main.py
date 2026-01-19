@@ -42,7 +42,11 @@ async def lifespan(app: FastAPI):
     - Graceful shutdown on SIGTERM/SIGINT
     - Cleanup of resources
     """
-    client = MCPClient()
+    # Initialize MCPClient with configured transport
+    client = MCPClient(
+        transport=settings.mcp_transport,
+        server_url=settings.mcp_server_url if settings.mcp_transport == "sse" else None
+    )
     shutdown_event = asyncio.Event()
     
     def signal_handler(signum, frame):
@@ -56,7 +60,7 @@ async def lifespan(app: FastAPI):
         signal.signal(sig, signal_handler)
     
     try:
-        logger.info("Starting agent service...")
+        logger.info(f"Starting agent service with {settings.mcp_transport} transport...")
         connected = await client.connect_to_server(settings.server_script_path)
         if not connected:
             raise RuntimeError("Failed to connect to MCP server")
@@ -135,7 +139,11 @@ class QueryRequest(BaseModel):
     )
     session_id: str | None = Field(
         default=None, 
-        description="Optional session ID to continue existing conversation"
+        description="Optional conversation session ID to continue existing conversation"
+    )
+    auth_session_id: str | None = Field(
+        default=None,
+        description="OAuth session ID for user authentication (from login callback)"
     )
 
 
@@ -174,9 +182,16 @@ async def process_query(request: QueryRequest):
     
     If session_id is provided, continues the existing conversation.
     Otherwise, starts a new session.
+    If auth_session_id is provided, uses the user's OAuth token.
     Requires X-API-Key header if authentication is enabled.
     """
     try:
+        # If user has an auth session, use their OAuth token
+        if request.auth_session_id:
+            access_token = await auth.get_valid_access_token(request.auth_session_id)
+            if access_token:
+                await app.state.client.set_access_token(access_token)
+        
         session_id, messages = await app.state.client.process_query(
             request.query, request.session_id
         )
@@ -197,8 +212,15 @@ async def process_query_stream(request: QueryRequest):
     - error: If an error occurs
     - done: When processing is complete
     
+    If auth_session_id is provided, uses the user's OAuth token.
     Requires X-API-Key header if authentication is enabled.
     """
+    # If user has an auth session, use their OAuth token
+    if request.auth_session_id:
+        access_token = await auth.get_valid_access_token(request.auth_session_id)
+        if access_token:
+            await app.state.client.set_access_token(access_token)
+    
     async def event_generator():
         async for event in app.state.client.process_query_stream(
             request.query, request.session_id

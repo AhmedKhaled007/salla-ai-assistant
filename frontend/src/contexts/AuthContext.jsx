@@ -7,6 +7,7 @@ export function AuthProvider({ children }) {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [merchantInfo, setMerchantInfo] = useState(null);
+    const [authSessionId, setAuthSessionId] = useState(null);  // OAuth session ID for API calls
     const [error, setError] = useState(null);
 
     // Check authentication status on mount
@@ -19,6 +20,7 @@ export function AuthProvider({ children }) {
                     const parsed = JSON.parse(cachedAuth);
                     setIsAuthenticated(true);
                     setMerchantInfo(parsed.merchantInfo);
+                    setAuthSessionId(parsed.authSessionId);
                 }
 
                 // Then verify with backend
@@ -69,8 +71,10 @@ export function AuthProvider({ children }) {
             if (result.success) {
                 setIsAuthenticated(true);
                 setMerchantInfo(result.merchant_info);
+                setAuthSessionId(result.session_id);  // Store auth session ID
                 localStorage.setItem('salla_auth', JSON.stringify({
                     merchantInfo: result.merchant_info,
+                    authSessionId: result.session_id,
                 }));
                 return true;
             } else {
@@ -95,6 +99,7 @@ export function AuthProvider({ children }) {
         } finally {
             setIsAuthenticated(false);
             setMerchantInfo(null);
+            setAuthSessionId(null);
             localStorage.removeItem('salla_auth');
         }
     }, []);
@@ -103,6 +108,7 @@ export function AuthProvider({ children }) {
         isAuthenticated,
         isLoading,
         merchantInfo,
+        authSessionId,
         error,
         login,
         logout,

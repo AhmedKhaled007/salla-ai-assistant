@@ -11,6 +11,7 @@ import aiofiles
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.sse import sse_client
 import litellm
 
 from .utils import settings, logger
@@ -39,15 +40,23 @@ class MCPClient:
         ```
     """
     
-    def __init__(self) -> None:
-        """Initialize the MCP client with empty session and tools."""
+    def __init__(self, transport: str = "stdio", server_url: Optional[str] = None) -> None:
+        """Initialize the MCP client.
+        
+        Args:
+            transport: Transport type - 'stdio' or 'sse'
+            server_url: URL for SSE transport (e.g., 'http://localhost:8001/sse')
+        """
         self.session: Optional[ClientSession] = None
         self.exit_stack: AsyncExitStack = AsyncExitStack()
         self.tools: list[dict] = []
         self._sessions: dict[str, list[dict]] = {}  # session_id -> messages
         self._lock: asyncio.Lock = asyncio.Lock()  # Serialize concurrent requests
         self._conversation_id: str = ""
-        self._server_script_path: str = ""  # Store for reconnection
+        self._server_script_path: str = ""  # Store for stdio reconnection
+        self._current_access_token: Optional[str] = None  # Current user's Salla token
+        self._transport: str = transport
+        self._server_url: Optional[str] = server_url
 
     @property
     def is_connected(self) -> bool:
@@ -97,7 +106,7 @@ class MCPClient:
         self.exit_stack = AsyncExitStack()
         self.session = None
         
-        return await self.connect_to_server(self._server_script_path)
+        return await self.connect_to_server(self._server_script_path, self._current_access_token)
 
     def create_session(self) -> str:
         """Create a new conversation session and return its ID."""
@@ -122,68 +131,141 @@ class MCPClient:
         """List all active session IDs."""
         return list(self._sessions.keys())
 
-    async def connect_to_server(self, server_script_path: str) -> bool:
+    async def set_access_token(self, access_token: str) -> bool:
+        """Update the Salla access token.
+        
+        For SSE transport, this just updates the token for future requests.
+        For stdio transport, this reconnects the MCP server with new env.
+        
+        Args:
+            access_token: The new Salla OAuth access token.
+            
+        Returns:
+            True if update was successful.
+        """
+        if access_token == self._current_access_token:
+            logger.info("Access token unchanged")
+            return True
+        
+        self._current_access_token = access_token
+        
+        if self._transport == "sse":
+            # For SSE, we pass token in headers per-request, no reconnection needed
+            logger.info("Updated access token for SSE transport")
+            return True
+        else:
+            # For stdio, need to restart MCP server process
+            logger.info("Access token changed, reconnecting MCP server...")
+            try:
+                await self.cleanup()
+            except Exception:
+                pass
+            self.exit_stack = AsyncExitStack()
+            self.session = None
+            return await self.connect_to_server(self._server_script_path, access_token)
+
+    async def connect_to_server(self, server_script_path: str = "", access_token: Optional[str] = None) -> bool:
         """Connect to an MCP server.
         
         Args:
-            server_script_path: Path to the server script (.py or .js file).
+            server_script_path: Path to server script (for stdio) or ignored (for SSE).
+            access_token: Optional Salla OAuth access token.
         
         Returns:
             True if connection was successful.
-        
-        Raises:
-            ValueError: If server script is not a .py or .js file.
-            Exception: If connection fails.
         """
         try:
-            # Store path for potential reconnection
-            self._server_script_path = server_script_path
+            self._current_access_token = access_token
             
-            is_python = server_script_path.endswith(".py")
-            is_js = server_script_path.endswith(".js")
-            if not (is_python or is_js):
-                raise ValueError("Server script must be a .py or .js file")
-
-            command = "python" if is_python else "node"
-            server_params = StdioServerParameters(
-                command=command, args=[server_script_path], env=None
-            )
-
-            stdio_transport = await self.exit_stack.enter_async_context(
-                stdio_client(server_params)
-            )
-            self.stdio, self.write = stdio_transport
-            self.session = await self.exit_stack.enter_async_context(
-                ClientSession(self.stdio, self.write)
-            )
-
-            await self.session.initialize()
-
-            logger.info("Connected to MCP server")
-
-            mcp_tools = await self.get_mcp_tools()
-            self.tools = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "parameters": tool.inputSchema,
-                    }
-                }
-                for tool in mcp_tools
-            ]
-
-            logger.info(
-                f"Available tools: {[tool['function']['name'] for tool in self.tools]}"
-            )
-
-            return True
-
+            if self._transport == "sse":
+                return await self._connect_sse()
+            else:
+                return await self._connect_stdio(server_script_path, access_token)
+                
         except Exception as e:
             logger.error(f"Error connecting to MCP server: {e}")
             traceback.print_exc()
             raise
+
+    async def _connect_sse(self) -> bool:
+        """Connect to MCP server via SSE transport."""
+        if not self._server_url:
+            raise ValueError("SSE transport requires server_url")
+        
+        logger.info(f"Connecting to MCP server via SSE: {self._server_url}")
+        
+        # Build headers with access token if available
+        headers = {}
+        if self._current_access_token:
+            headers["Authorization"] = f"Bearer {self._current_access_token}"
+        
+        sse_transport = await self.exit_stack.enter_async_context(
+            sse_client(self._server_url, headers=headers)
+        )
+        self.read_stream, self.write_stream = sse_transport
+        self.session = await self.exit_stack.enter_async_context(
+            ClientSession(self.read_stream, self.write_stream)
+        )
+        
+        await self.session.initialize()
+        logger.info("Connected to MCP server via SSE")
+        
+        await self._load_tools()
+        return True
+
+    async def _connect_stdio(self, server_script_path: str, access_token: Optional[str] = None) -> bool:
+        """Connect to MCP server via stdio transport."""
+        self._server_script_path = server_script_path
+        
+        is_python = server_script_path.endswith(".py")
+        is_js = server_script_path.endswith(".js")
+        if not (is_python or is_js):
+            raise ValueError("Server script must be a .py or .js file")
+
+        command = "python" if is_python else "node"
+        
+        # Build environment with access token if provided
+        env = None
+        if access_token:
+            env = os.environ.copy()
+            env["SALLA_ACCESS_TOKEN"] = access_token
+            logger.info("Injecting user's OAuth token into MCP server environment")
+        
+        server_params = StdioServerParameters(
+            command=command, args=[server_script_path], env=env
+        )
+
+        stdio_transport = await self.exit_stack.enter_async_context(
+            stdio_client(server_params)
+        )
+        self.read_stream, self.write_stream = stdio_transport
+        self.session = await self.exit_stack.enter_async_context(
+            ClientSession(self.read_stream, self.write_stream)
+        )
+
+        await self.session.initialize()
+        logger.info("Connected to MCP server via stdio")
+        
+        await self._load_tools()
+        return True
+
+    async def _load_tools(self):
+        """Load available tools from MCP server."""
+        mcp_tools = await self.get_mcp_tools()
+        self.tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.inputSchema,
+                }
+            }
+            for tool in mcp_tools
+        ]
+        logger.info(
+            f"Available tools: {[tool['function']['name'] for tool in self.tools]}"
+        )
 
     async def get_mcp_tools(self) -> list:
         """Get the list of available tools from the MCP server.

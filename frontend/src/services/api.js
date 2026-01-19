@@ -4,16 +4,21 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 /**
  * Send a query to the AI agent (non-streaming)
  * @param {string} query - The user's query
- * @param {string|null} sessionId - Optional session ID
+ * @param {string|null} sessionId - Optional conversation session ID
+ * @param {string|null} authSessionId - Optional OAuth session ID for authentication
  * @returns {Promise<{session_id: string, messages: Array}>} - The response
  */
-export async function sendQuery(query, sessionId = null) {
+export async function sendQuery(query, sessionId = null, authSessionId = null) {
     const response = await fetch(`${API_BASE_URL}/query`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ query, session_id: sessionId }),
+        body: JSON.stringify({
+            query,
+            session_id: sessionId,
+            auth_session_id: authSessionId,
+        }),
     });
 
     if (!response.ok) {
@@ -27,7 +32,8 @@ export async function sendQuery(query, sessionId = null) {
 /**
  * Send a query with SSE streaming
  * @param {string} query - The user's query
- * @param {string|null} sessionId - Optional session ID
+ * @param {string|null} sessionId - Optional conversation session ID
+ * @param {string|null} authSessionId - Optional OAuth session ID for authentication
  * @param {object} callbacks - Event callbacks
  * @param {function} callbacks.onSession - Called with session_id
  * @param {function} callbacks.onToolCall - Called with {tool_name, tool_args}
@@ -37,13 +43,17 @@ export async function sendQuery(query, sessionId = null) {
  * @param {function} callbacks.onDone - Called when complete
  * @returns {Promise<void>}
  */
-export async function sendQueryStream(query, sessionId = null, callbacks = {}) {
+export async function sendQueryStream(query, sessionId = null, authSessionId = null, callbacks = {}) {
     const response = await fetch(`${API_BASE_URL}/query/stream`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ query, session_id: sessionId }),
+        body: JSON.stringify({
+            query,
+            session_id: sessionId,
+            auth_session_id: authSessionId,
+        }),
     });
 
     if (!response.ok) {

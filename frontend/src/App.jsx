@@ -34,8 +34,8 @@ function ProtectedRoute({ children }) {
 
 // Main chat application content
 function ChatApp() {
-  const { messages, isLoading, sessionId, sendMessage, clearMessages, setMessages, setSessionId } = useChat();
-  const { logout, merchantInfo } = useAuth();
+  const { logout, merchantInfo, authSessionId } = useAuth();
+  const { messages, isLoading, sessionId, sendMessage, clearMessages, setMessages, setSessionId } = useChat(authSessionId);
   const [sessions, setSessions] = useState([]);
   const [healthStatus, setHealthStatus] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);

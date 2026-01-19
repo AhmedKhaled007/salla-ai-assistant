@@ -3,8 +3,9 @@ import { sendQueryStream } from '../services/api';
 
 /**
  * Custom hook for chat functionality with SSE streaming
+ * @param {string|null} authSessionId - Optional OAuth session ID for authentication
  */
-export function useChat() {
+export function useChat(authSessionId = null) {
     const [messages, setMessages] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -33,7 +34,7 @@ export function useChat() {
         const toolCalls = [];
 
         try {
-            await sendQueryStream(query, sessionId, {
+            await sendQueryStream(query, sessionId, authSessionId, {
                 onSession: (newSessionId) => {
                     setSessionId(newSessionId);
                 },
@@ -102,7 +103,7 @@ export function useChat() {
             setIsLoading(false);
             setCurrentToolCall(null);
         }
-    }, [sessionId]);
+    }, [sessionId, authSessionId]);
 
     const clearMessages = useCallback(() => {
         setMessages([]);

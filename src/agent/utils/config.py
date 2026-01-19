@@ -16,8 +16,10 @@ class Settings(BaseSettings):
     llm_max_retries: int = 3  # Max retry attempts for LLM calls
     llm_retry_delay: float = 1.0  # Base delay in seconds (exponential backoff)
 
-    # MCP Server Configuration (relative to project root, or set SERVER_SCRIPT_PATH env var)
+    # MCP Server Configuration
     server_script_path: str = str(_PROJECT_ROOT / "src" / "mcp_server" / "main.py")
+    mcp_transport: str = "stdio"  # Transport type: 'stdio' or 'sse'
+    mcp_server_url: str = "http://localhost:8001/sse"  # URL for SSE transport
 
     # API Server Configuration
     api_host: str = "0.0.0.0"
