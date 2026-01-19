@@ -8,16 +8,28 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  * @param {string|null} authSessionId - Optional OAuth session ID for authentication
  * @returns {Promise<{session_id: string, messages: Array}>} - The response
  */
+/**
+ * Send a query to the AI agent (non-streaming)
+ * @param {string} query - The user's query
+ * @param {string|null} sessionId - Optional conversation session ID
+ * @param {string|null} authSessionId - Optional OAuth session ID for authentication
+ * @returns {Promise<{session_id: string, messages: Array}>} - The response
+ */
 export async function sendQuery(query, sessionId = null, authSessionId = null) {
-    const response = await fetch(`${API_BASE_URL}/query`, {
+    const headers = {
+        'Content-Type': 'application/json',
+    };
+
+    if (authSessionId) {
+        headers['X-Auth-Session-Id'] = authSessionId;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/query`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
             query,
             session_id: sessionId,
-            auth_session_id: authSessionId,
         }),
     });
 
@@ -44,15 +56,20 @@ export async function sendQuery(query, sessionId = null, authSessionId = null) {
  * @returns {Promise<void>}
  */
 export async function sendQueryStream(query, sessionId = null, authSessionId = null, callbacks = {}) {
-    const response = await fetch(`${API_BASE_URL}/query/stream`, {
+    const headers = {
+        'Content-Type': 'application/json',
+    };
+
+    if (authSessionId) {
+        headers['X-Auth-Session-Id'] = authSessionId;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/query/stream`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
             query,
             session_id: sessionId,
-            auth_session_id: authSessionId,
         }),
     });
 
@@ -147,7 +164,7 @@ export async function checkHealth() {
  * @returns {Promise<{session_id: string}>}
  */
 export async function createSession() {
-    const response = await fetch(`${API_BASE_URL}/sessions`, {
+    const response = await fetch(`${API_BASE_URL}/api/sessions`, {
         method: 'POST',
     });
 
@@ -163,7 +180,7 @@ export async function createSession() {
  * @returns {Promise<{sessions: string[]}>}
  */
 export async function getSessions() {
-    const response = await fetch(`${API_BASE_URL}/sessions`);
+    const response = await fetch(`${API_BASE_URL}/api/sessions`);
 
     if (!response.ok) {
         throw new Error('Failed to fetch sessions');
@@ -178,7 +195,7 @@ export async function getSessions() {
  * @returns {Promise<{session_id: string, messages: Array}>}
  */
 export async function getSession(sessionId) {
-    const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`);
+    const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`);
 
     if (!response.ok) {
         if (response.status === 404) {
@@ -196,7 +213,7 @@ export async function getSession(sessionId) {
  * @returns {Promise<{message: string}>}
  */
 export async function deleteSession(sessionId) {
-    const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
+    const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`, {
         method: 'DELETE',
     });
 
@@ -212,10 +229,10 @@ export async function deleteSession(sessionId) {
 
 /**
  * Get the Salla OAuth authorization URL
- * @returns {Promise<{auth_url: string}>}
+ * @returns {Promise<{url: string}>}
  */
 export async function getAuthUrl() {
-    const response = await fetch(`${API_BASE_URL}/auth/salla/url`);
+    const response = await fetch(`${API_BASE_URL}/auth/url`);
 
     if (!response.ok) {
         throw new Error('Failed to get auth URL');
@@ -230,7 +247,7 @@ export async function getAuthUrl() {
  * @returns {Promise<{success: boolean, merchant_info?: object, error?: string}>}
  */
 export async function exchangeCode(code) {
-    const response = await fetch(`${API_BASE_URL}/auth/salla/callback`, {
+    const response = await fetch(`${API_BASE_URL}/auth/callback`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -248,11 +265,16 @@ export async function exchangeCode(code) {
 
 /**
  * Check current authentication status
+ * @param {string} authSessionId - The auth session ID to check
  * @returns {Promise<{authenticated: boolean, merchant_info?: object}>}
  */
-export async function checkAuthStatus() {
+export async function checkAuthStatus(authSessionId) {
+    if (!authSessionId) return { authenticated: false };
+
     const response = await fetch(`${API_BASE_URL}/auth/status`, {
-        credentials: 'include',
+        headers: {
+            'X-Auth-Session-Id': authSessionId
+        }
     });
 
     if (!response.ok) {
@@ -264,12 +286,17 @@ export async function checkAuthStatus() {
 
 /**
  * Logout and clear session
+ * @param {string} authSessionId - The auth session ID to logout
  * @returns {Promise<{success: boolean}>}
  */
-export async function logout() {
+export async function logout(authSessionId) {
+    if (!authSessionId) return { success: true };
+
     const response = await fetch(`${API_BASE_URL}/auth/logout`, {
         method: 'POST',
-        credentials: 'include',
+        headers: {
+            'X-Auth-Session-Id': authSessionId
+        }
     });
 
     if (!response.ok) {

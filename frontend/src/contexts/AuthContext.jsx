@@ -16,30 +16,44 @@ export function AuthProvider({ children }) {
             try {
                 // First check localStorage for cached auth state
                 const cachedAuth = localStorage.getItem('salla_auth');
+                let currentSessionId = null;
+
                 if (cachedAuth) {
                     const parsed = JSON.parse(cachedAuth);
                     setIsAuthenticated(true);
                     setMerchantInfo(parsed.merchantInfo);
                     setAuthSessionId(parsed.authSessionId);
+                    currentSessionId = parsed.authSessionId;
                 }
 
                 // Then verify with backend
-                const status = await checkAuthStatus();
-                if (status.authenticated) {
-                    setIsAuthenticated(true);
-                    setMerchantInfo(status.merchant_info);
-                    localStorage.setItem('salla_auth', JSON.stringify({
-                        merchantInfo: status.merchant_info,
-                    }));
-                } else {
-                    // Backend says not authenticated, clear local state
-                    setIsAuthenticated(false);
-                    setMerchantInfo(null);
-                    localStorage.removeItem('salla_auth');
+                // If we have a cached session ID, check that specific session
+                if (currentSessionId) {
+                    const status = await checkAuthStatus(currentSessionId);
+                    if (status.authenticated) {
+                        setIsAuthenticated(true);
+                        setMerchantInfo(status.merchant_info);
+                        // Refresh storage with latest info
+                        localStorage.setItem('salla_auth', JSON.stringify({
+                            merchantInfo: status.merchant_info,
+                            authSessionId: currentSessionId
+                        }));
+                    } else {
+                        // Backend says not authenticated (expired/invalid), clear local state
+                        console.log('Session expired or invalid according to backend');
+                        setIsAuthenticated(false);
+                        setMerchantInfo(null);
+                        setAuthSessionId(null);
+                        localStorage.removeItem('salla_auth');
+                    }
                 }
             } catch (err) {
-                // If backend is unreachable, keep cached state
+                // If backend is unreachable, keep cached state if we have it
                 console.error('Auth check failed:', err);
+                if (err.message && err.message.includes('Failed to fetch')) {
+                    // Network error, maybe keep offline state?
+                    // For now, doing nothing satisfies "keep cached state"
+                }
             } finally {
                 setIsLoading(false);
             }
@@ -52,9 +66,9 @@ export function AuthProvider({ children }) {
     const login = useCallback(async () => {
         try {
             setError(null);
-            const { auth_url } = await getAuthUrl();
+            const { url } = await getAuthUrl();
             // Redirect to Salla OAuth
-            window.location.href = auth_url;
+            window.location.href = url;
         } catch (err) {
             setError('Failed to initiate login. Please try again.');
             console.error('Login failed:', err);
@@ -68,13 +82,13 @@ export function AuthProvider({ children }) {
             setError(null);
             const result = await exchangeCode(code);
 
-            if (result.success) {
+            if (result.status === "success") {
                 setIsAuthenticated(true);
-                setMerchantInfo(result.merchant_info);
-                setAuthSessionId(result.session_id);  // Store auth session ID
+                setMerchantInfo(result.merchant);
+                setAuthSessionId(result.auth_session_id);  // Store auth session ID
                 localStorage.setItem('salla_auth', JSON.stringify({
-                    merchantInfo: result.merchant_info,
-                    authSessionId: result.session_id,
+                    merchantInfo: result.merchant,
+                    authSessionId: result.auth_session_id,
                 }));
                 return true;
             } else {
@@ -93,7 +107,9 @@ export function AuthProvider({ children }) {
     // Logout
     const logout = useCallback(async () => {
         try {
-            await apiLogout();
+            if (authSessionId) {
+                await apiLogout(authSessionId);
+            }
         } catch (err) {
             console.error('Logout API call failed:', err);
         } finally {
@@ -102,7 +118,7 @@ export function AuthProvider({ children }) {
             setAuthSessionId(null);
             localStorage.removeItem('salla_auth');
         }
-    }, []);
+    }, [authSessionId]);
 
     const value = {
         isAuthenticated,

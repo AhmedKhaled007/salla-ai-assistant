@@ -1,11 +1,12 @@
 """Query processing endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from fastapi.responses import StreamingResponse
+from fastapi import Request
 
 from ..models import QueryRequest
-from ...services import MCPClientPool
-from fastapi import Request
+from ...services import MCPClientPool, get_valid_access_token
+from .auth import get_auth_session_id
 
 router = APIRouter()
 
@@ -17,32 +18,25 @@ def get_pool(request: Request) -> MCPClientPool:
 async def process_query(
     request: QueryRequest,
     req: Request,
+    auth_session_id: str | None = Depends(get_auth_session_id)
 ):
     """Process a query and return the response.
     
     Uses MCPClientPool to get a per-user client for token isolation.
     If session_id is provided, continues the existing conversation.
-    If auth_session_id is provided, uses the user's OAuth token.
+    If auth_session_id is provided (via header), uses the user's OAuth token.
     """
     pool = get_pool(req)
     
     # Get access token from session if authenticated
     access_token = None
-    if request.auth_session_id:
-        from ...services import get_valid_access_token
-        access_token = await get_valid_access_token(request.auth_session_id)
-        if not access_token:
-            # Token expired or invalid
-            # We could proceed unauthenticated OR fail. 
-            # If user sent auth_session_id, they expect auth context.
-            # But maybe they just want to chat unauthenticated?
-            # Let's log warning and proceed unauthenticated if getting token fails?
-            # Actually, `get_valid_access_token` tries refresh. If it returns None, it means
-            # we really can't authenticate.
-            pass
+    if auth_session_id:
+        access_token = await get_valid_access_token(auth_session_id)
+        # Note: If token is None, we proceed as unauthenticated/guest if allowed,
+        # or the pool/client might enforce auth. For now, we pass what we have.
 
     try:
-        client = await pool.get_client(request.auth_session_id, access_token)
+        client = await pool.get_client(auth_session_id, access_token)
         messages = await client.process_query(request.query, request.session_id)
         return {"messages": messages}
     except Exception as e:
@@ -53,6 +47,7 @@ async def process_query(
 async def process_query_stream(
     request: QueryRequest,
     req: Request,
+    auth_session_id: str | None = Depends(get_auth_session_id)
 ):
     """Process a query with Server-Sent Events streaming.
     
@@ -61,14 +56,12 @@ async def process_query_stream(
     """
     pool = get_pool(req)
     
-    # Get access token logic (duplicated, could be dry-ed)
     access_token = None
-    if request.auth_session_id:
-        from ...services import get_valid_access_token
-        access_token = await get_valid_access_token(request.auth_session_id)
+    if auth_session_id:
+        access_token = await get_valid_access_token(auth_session_id)
 
     try:
-        client = await pool.get_client(request.auth_session_id, access_token)
+        client = await pool.get_client(auth_session_id, access_token)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get client: {e}")
 

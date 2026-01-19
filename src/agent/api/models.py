@@ -18,10 +18,6 @@ class QueryRequest(BaseModel):
         default=None,
         description="Optional conversation session ID to continue existing conversation"
     )
-    auth_session_id: str | None = Field(
-        default=None,
-        description="OAuth session ID for user authentication (from login callback)"
-    )
 
 
 class Message(BaseModel):

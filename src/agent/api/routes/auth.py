@@ -1,6 +1,5 @@
-"""Authentication endpoints."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Header
 
 from ..models import OAuthCallbackRequest
 from ...services import (
@@ -12,9 +11,17 @@ from ...services import (
     get_merchant_info,
     store_tokens,
     delete_tokens,
+    is_authenticated,
+    get_tokens
 )
 
 router = APIRouter()
+
+
+async def get_auth_session_id(
+    x_auth_session_id: str | None = Header(default=None, alias="X-Auth-Session-Id")
+) -> str | None:
+    return x_auth_session_id
 
 
 @router.get("/url")
@@ -55,8 +62,6 @@ async def oauth_callback_endpoint(request: OAuthCallbackRequest):
     merchant_info = await get_merchant_info(access_token)
     
     # 4. Create a session ID for the user (auth_session_id)
-    # In a real app, this might be a JWT or session cookie. 
-    # Here we'll use the merchant ID or a generated UUID mapped to it.
     import uuid
     auth_session_id = str(uuid.uuid4())
     
@@ -70,16 +75,34 @@ async def oauth_callback_endpoint(request: OAuthCallbackRequest):
     }
 
 
-@router.post("/logout/{auth_session_id}")
-async def logout(auth_session_id: str):
+@router.get("/status")
+async def get_auth_status(
+    auth_session_id: str | None = Depends(get_auth_session_id)
+):
+    """Check authentication status using header."""
+    if not auth_session_id:
+        return {"authenticated": False}
+        
+    authenticated = await is_authenticated(auth_session_id)
+    if not authenticated:
+        return {"authenticated": False}
+        
+    tokens = await get_tokens(auth_session_id)
+    merchant_info = tokens.get("merchant_info") if tokens else None
+    
+    return {
+        "authenticated": True,
+        "merchant_info": merchant_info
+    }
+
+
+@router.post("/logout")
+async def logout(
+    auth_session_id: str | None = Depends(get_auth_session_id)
+):
     """Logout endpoint to clear session tokens."""
-    # Also need to clear client from pool?
-    # This logic should ideally be in a service method that does both.
+    if not auth_session_id:
+        return {"status": "success"}
+
     success = await delete_tokens(auth_session_id)
-    
-    # We also need to notify the pool to release/remove the client
-    # But routes shouldn't know about pool implementation details strictly...
-    # However, since we set up pool in main, maybe we can access it here too 
-    # if we passed request. But auth routes might not need pool except for this.
-    
     return {"status": "success" if success else "not_found"}
