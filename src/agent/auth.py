@@ -4,7 +4,7 @@ This module provides functions for:
 - Generating Salla OAuth authorization URLs
 - Exchanging authorization codes for access tokens
 - Refreshing expired tokens
-- Managing per-session token storage
+- Managing per-session token storage via repositories
 """
 
 import secrets
@@ -13,11 +13,12 @@ from typing import Optional
 from datetime import datetime, timedelta
 
 from .utils import settings, logger
+from .dependencies import get_token_repository, get_state_repository
 
 
-# In-memory token storage (session_id -> token_data)
-# Production should use a database
-_token_store: dict[str, dict] = {}
+# Get repository instances
+_token_repo = get_token_repository()
+_state_repo = get_state_repository()
 
 
 def generate_state() -> str:
@@ -42,7 +43,8 @@ def generate_auth_url(state: str) -> str:
         "state": state,
     }
     
-    query_string = "&".join(f"{k}={v}" for k, v in params.items())
+    from urllib.parse import urlencode
+    query_string = urlencode(params)
     return f"{settings.salla_oauth_base_url}/auth?{query_string}"
 
 
@@ -152,9 +154,14 @@ async def get_merchant_info(access_token: str) -> dict:
         return data.get("data", {})
 
 
-# Session token management
+# =============================================================================
+# SESSION TOKEN MANAGEMENT (using TokenRepository)
+# =============================================================================
 
-def store_tokens(session_id: str, tokens: dict, merchant_info: Optional[dict] = None):
+
+async def store_tokens(
+    session_id: str, tokens: dict, merchant_info: Optional[dict] = None
+) -> None:
     """Store tokens for a session.
     
     Args:
@@ -163,16 +170,17 @@ def store_tokens(session_id: str, tokens: dict, merchant_info: Optional[dict] = 
         merchant_info: Optional merchant info to cache
     """
     expires_in = tokens.get("expires_in", 3600)
-    _token_store[session_id] = {
+    token_data = {
         "access_token": tokens.get("access_token"),
         "refresh_token": tokens.get("refresh_token"),
-        "expires_at": datetime.now() + timedelta(seconds=expires_in),
+        "expires_at": (datetime.now() + timedelta(seconds=expires_in)).isoformat(),
         "merchant_info": merchant_info,
     }
+    await _token_repo.store(session_id, token_data, ttl_seconds=expires_in)
     logger.info(f"Stored tokens for session: {session_id[:8]}...")
 
 
-def get_tokens(session_id: str) -> Optional[dict]:
+async def get_tokens(session_id: str) -> Optional[dict]:
     """Get tokens for a session.
     
     Args:
@@ -181,10 +189,10 @@ def get_tokens(session_id: str) -> Optional[dict]:
     Returns:
         Token data dict or None if not found
     """
-    return _token_store.get(session_id)
+    return await _token_repo.get(session_id)
 
 
-def delete_tokens(session_id: str) -> bool:
+async def delete_tokens(session_id: str) -> bool:
     """Delete tokens for a session.
     
     Args:
@@ -193,14 +201,13 @@ def delete_tokens(session_id: str) -> bool:
     Returns:
         True if tokens were deleted, False if session not found
     """
-    if session_id in _token_store:
-        del _token_store[session_id]
+    deleted = await _token_repo.delete(session_id)
+    if deleted:
         logger.info(f"Deleted tokens for session: {session_id[:8]}...")
-        return True
-    return False
+    return deleted
 
 
-def is_authenticated(session_id: str) -> bool:
+async def is_authenticated(session_id: str) -> bool:
     """Check if a session has valid tokens.
     
     Args:
@@ -209,13 +216,15 @@ def is_authenticated(session_id: str) -> bool:
     Returns:
         True if session has non-expired tokens
     """
-    token_data = _token_store.get(session_id)
+    token_data = await _token_repo.get(session_id)
     if not token_data:
         return False
     
     # Check if token is expired (with 5 minute buffer)
-    if token_data.get("expires_at"):
-        if datetime.now() > token_data["expires_at"] - timedelta(minutes=5):
+    expires_at_str = token_data.get("expires_at")
+    if expires_at_str:
+        expires_at = datetime.fromisoformat(expires_at_str)
+        if datetime.now() > expires_at - timedelta(minutes=5):
             return False
     
     return bool(token_data.get("access_token"))
@@ -230,23 +239,25 @@ async def get_valid_access_token(session_id: str) -> Optional[str]:
     Returns:
         Valid access token or None
     """
-    token_data = _token_store.get(session_id)
+    token_data = await _token_repo.get(session_id)
     if not token_data:
         return None
     
     # Check if token is about to expire (5 minute buffer)
-    if token_data.get("expires_at"):
-        if datetime.now() > token_data["expires_at"] - timedelta(minutes=5):
+    expires_at_str = token_data.get("expires_at")
+    if expires_at_str:
+        expires_at = datetime.fromisoformat(expires_at_str)
+        if datetime.now() > expires_at - timedelta(minutes=5):
             # Try to refresh
             refresh_token = token_data.get("refresh_token")
             if refresh_token:
                 try:
                     new_tokens = await refresh_access_token(refresh_token)
-                    store_tokens(session_id, new_tokens, token_data.get("merchant_info"))
+                    await store_tokens(session_id, new_tokens, token_data.get("merchant_info"))
                     return new_tokens.get("access_token")
                 except Exception as e:
                     logger.error(f"Failed to refresh token: {e}")
-                    delete_tokens(session_id)
+                    await delete_tokens(session_id)
                     return None
             else:
                 return None
@@ -254,33 +265,20 @@ async def get_valid_access_token(session_id: str) -> Optional[str]:
     return token_data.get("access_token")
 
 
-# State management for CSRF protection
-_state_store: dict[str, datetime] = {}
+# =============================================================================
+# STATE MANAGEMENT FOR CSRF PROTECTION (using StateRepository)
+# =============================================================================
 
 
-def store_state(state: str):
+async def store_state(state: str) -> None:
     """Store a state parameter for CSRF validation."""
-    _state_store[state] = datetime.now()
-    
-    # Clean up old states (older than 10 minutes)
-    cutoff = datetime.now() - timedelta(minutes=10)
-    expired = [s for s, t in _state_store.items() if t < cutoff]
-    for s in expired:
-        del _state_store[s]
+    await _state_repo.store(state, ttl_seconds=600)  # 10 minutes
 
 
-def validate_state(state: str) -> bool:
+async def validate_state(state: str) -> bool:
     """Validate and consume a state parameter.
     
     Returns:
         True if state is valid and not expired
     """
-    if state not in _state_store:
-        return False
-    
-    stored_time = _state_store.pop(state)
-    # State valid for 10 minutes
-    if datetime.now() > stored_time + timedelta(minutes=10):
-        return False
-    
-    return True
+    return await _state_repo.validate_and_consume(state)

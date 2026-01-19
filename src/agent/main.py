@@ -1,15 +1,22 @@
+"""Agent Service - FastAPI application for AI-powered Salla assistant."""
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 from typing import Dict, Any
 from contextlib import asynccontextmanager
 import asyncio
 import json
+import uuid
 
-from .mcp_client import MCPClient
+from .client_pool import MCPClientPool
 from .utils import settings, logger
+from .dependencies import get_rate_limit_repository
 from . import auth
+
+
+# Get repository instance
+_rate_limit_repo = get_rate_limit_repository()
 
 
 async def verify_api_key(x_api_key: str | None = Header(default=None)):
@@ -30,42 +37,34 @@ async def verify_api_key(x_api_key: str | None = Header(default=None)):
             headers={"WWW-Authenticate": "ApiKey"}
         )
 
-import signal
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager with graceful shutdown.
     
     Handles:
-    - MCP server connection on startup
-    - Graceful shutdown on SIGTERM/SIGINT
-    - Cleanup of resources
+    - MCPClientPool initialization on startup
+    - Cleanup of all pooled resources on shutdown
+    
+    Note: Uvicorn handles SIGTERM/SIGINT natively and triggers the lifespan
+    context manager exit, which runs our finally block for cleanup.
     """
-    # Initialize MCPClient with configured transport
-    client = MCPClient(
+    # Initialize MCPClientPool with configured transport
+    pool = MCPClientPool(
         transport=settings.mcp_transport,
-        server_url=settings.mcp_server_url if settings.mcp_transport == "sse" else None
+        server_url=settings.mcp_server_url if settings.mcp_transport == "http" else None,
+        server_script_path=settings.server_script_path,
+        max_idle_seconds=300,
+        cleanup_interval_seconds=60,
     )
-    shutdown_event = asyncio.Event()
-    
-    def signal_handler(signum, frame):
-        """Handle shutdown signals gracefully."""
-        sig_name = signal.Signals(signum).name
-        logger.info(f"Received {sig_name}, initiating graceful shutdown...")
-        shutdown_event.set()
-    
-    # Register signal handlers
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, signal_handler)
     
     try:
         logger.info(f"Starting agent service with {settings.mcp_transport} transport...")
-        connected = await client.connect_to_server(settings.server_script_path)
-        if not connected:
-            raise RuntimeError("Failed to connect to MCP server")
-        app.state.client = client
-        logger.info("Agent service started successfully")
+        initialized = await pool.initialize()
+        if not initialized:
+            raise RuntimeError("Failed to initialize MCPClientPool")
+        app.state.client_pool = pool
+        logger.info("Agent service started successfully with MCPClientPool")
         yield
     except Exception as e:
         logger.error(f"Error during lifespan: {e}")
@@ -73,61 +72,63 @@ async def lifespan(app: FastAPI):
     finally:
         # Graceful shutdown
         logger.info("Shutting down agent service...")
-        await client.cleanup()
+        await pool.cleanup_all()
         logger.info("Agent service shutdown complete")
 
 
-app = FastAPI(title="MCP Client API", lifespan=lifespan)
+app = FastAPI(title="Salla AI Agent API", lifespan=lifespan)
 
 
 # Add CORS middleware with configurable origins
-# Set ALLOWED_ORIGINS env var for production (comma-separated)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in settings.allowed_origins.split(",")],
-    allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_credentials=True, 
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
-
-# Simple in-memory rate limiting
-from collections import defaultdict
-import time
-
-_rate_limit_store: dict[str, list[float]] = defaultdict(list)
 
 
 @app.middleware("http")
 async def rate_limit_middleware(request, call_next):
-    """Rate limiting middleware based on client IP."""
+    """Rate limiting middleware using RateLimitRepository."""
     if not settings.rate_limit_enabled:
         return await call_next(request)
     
     # Get client IP (use X-Forwarded-For if behind proxy)
-    client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown")
+    client_ip = request.headers.get(
+        "X-Forwarded-For", 
+        request.client.host if request.client else "unknown"
+    )
     if "," in client_ip:
         client_ip = client_ip.split(",")[0].strip()
     
-    now = time.time()
-    window_start = now - settings.rate_limit_window
+    # Check rate limit using repository
+    allowed = await _rate_limit_repo.check_and_increment(
+        client_ip,
+        settings.rate_limit_requests,
+        settings.rate_limit_window,
+    )
     
-    # Clean old entries and add current request
-    _rate_limit_store[client_ip] = [
-        t for t in _rate_limit_store[client_ip] if t > window_start
-    ]
-    
-    if len(_rate_limit_store[client_ip]) >= settings.rate_limit_requests:
-        from fastapi.responses import JSONResponse
+    if not allowed:
+        remaining = await _rate_limit_repo.get_remaining(
+            client_ip, settings.rate_limit_requests, settings.rate_limit_window
+        )
         return JSONResponse(
             status_code=429,
             content={"detail": "Rate limit exceeded. Please try again later."},
-            headers={"Retry-After": str(settings.rate_limit_window)}
+            headers={
+                "Retry-After": str(settings.rate_limit_window),
+                "X-RateLimit-Remaining": str(remaining),
+            }
         )
     
-    _rate_limit_store[client_ip].append(now)
     return await call_next(request)
 
+
+# =============================================================================
+# REQUEST/RESPONSE MODELS
+# =============================================================================
 
 class QueryRequest(BaseModel):
     """Request model for query endpoint with validation."""
@@ -157,91 +158,45 @@ class ToolCall(BaseModel):
     args: Dict[str, Any]
 
 
+class OAuthCallbackRequest(BaseModel):
+    """Request model for OAuth callback."""
+    code: str = Field(..., description="Authorization code from Salla")
+    state: str | None = Field(default=None, description="CSRF state parameter")
+
+
+# =============================================================================
+# HEALTH & TOOLS ENDPOINTS
+# =============================================================================
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint for load balancer probes.
     
     Performs live ping to MCP server to verify connectivity.
-    Returns MCP connection status, LLM availability, and service info.
+    Returns MCP connection status, LLM availability, and pool info.
     """
-    # Perform live ping check
-    mcp_responsive = await app.state.client.ping()
+    pool: MCPClientPool = app.state.client_pool
+    mcp_responsive = await pool.ping()
     
     return {
         "status": "healthy" if mcp_responsive else "degraded",
-        "mcp_connected": app.state.client.is_connected,
+        "mcp_connected": pool.is_connected,
         "mcp_responsive": mcp_responsive,
         "llm_model": settings.llm_model,
-        "active_sessions": len(app.state.client.list_sessions()),
+        "pool_size": pool.pool_size,
+        "active_clients": pool.active_clients,
     }
-
-
-@app.post("/query", dependencies=[Depends(verify_api_key)])
-async def process_query(request: QueryRequest):
-    """Process a query and return the response.
-    
-    If session_id is provided, continues the existing conversation.
-    Otherwise, starts a new session.
-    If auth_session_id is provided, uses the user's OAuth token.
-    Requires X-API-Key header if authentication is enabled.
-    """
-    try:
-        # If user has an auth session, use their OAuth token
-        if request.auth_session_id:
-            access_token = await auth.get_valid_access_token(request.auth_session_id)
-            if access_token:
-                await app.state.client.set_access_token(access_token)
-        
-        session_id, messages = await app.state.client.process_query(
-            request.query, request.session_id
-        )
-        return {"session_id": session_id, "messages": messages}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/query/stream", dependencies=[Depends(verify_api_key)])
-async def process_query_stream(request: QueryRequest):
-    """Process a query with Server-Sent Events streaming.
-    
-    Returns events as they happen:
-    - session: Initial session ID
-    - tool_call: When a tool is being called
-    - tool_result: Result from a tool call
-    - response: Final assistant response
-    - error: If an error occurs
-    - done: When processing is complete
-    
-    If auth_session_id is provided, uses the user's OAuth token.
-    Requires X-API-Key header if authentication is enabled.
-    """
-    # If user has an auth session, use their OAuth token
-    if request.auth_session_id:
-        access_token = await auth.get_valid_access_token(request.auth_session_id)
-        if access_token:
-            await app.state.client.set_access_token(access_token)
-    
-    async def event_generator():
-        async for event in app.state.client.process_query_stream(
-            request.query, request.session_id
-        ):
-            yield f"data: {json.dumps(event)}\n\n"
-    
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        }
-    )
 
 
 @app.get("/tools")
 async def get_tools():
-    """Get the list of available tools"""
+    """Get the list of available tools."""
+    pool: MCPClientPool = app.state.client_pool
+    
+    # Use default client to get tools
+    client = await pool.get_client(None, None)
     try:
-        tools = await app.state.client.get_mcp_tools()
+        tools = await client.get_mcp_tools()
         return {
             "tools": [
                 {
@@ -256,26 +211,103 @@ async def get_tools():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Session Management Endpoints
+# =============================================================================
+# QUERY ENDPOINTS (using MCPClientPool)
+# =============================================================================
+
+@app.post("/query", dependencies=[Depends(verify_api_key)])
+async def process_query(request: QueryRequest):
+    """Process a query and return the response.
+    
+    Uses MCPClientPool to get a per-user client for token isolation.
+    If session_id is provided, continues the existing conversation.
+    If auth_session_id is provided, uses the user's OAuth token.
+    """
+    pool: MCPClientPool = app.state.client_pool
+    access_token = None
+    
+    # Get user's OAuth token if authenticated
+    if request.auth_session_id:
+        access_token = await auth.get_valid_access_token(request.auth_session_id)
+    
+    # Get or create client for this user
+    client = await pool.get_client(request.auth_session_id, access_token)
+    
+    try:
+        session_id, messages = await client.process_query(
+            request.query, request.session_id
+        )
+        return {"session_id": session_id, "messages": messages}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await pool.release_client(request.auth_session_id)
+
+
+@app.post("/query/stream", dependencies=[Depends(verify_api_key)])
+async def process_query_stream(request: QueryRequest):
+    """Process a query with Server-Sent Events streaming.
+    
+    Uses MCPClientPool to get a per-user client for token isolation.
+    Returns events as they happen: session, tool_call, tool_result, response, error, done.
+    """
+    pool: MCPClientPool = app.state.client_pool
+    access_token = None
+    
+    # Get user's OAuth token if authenticated
+    if request.auth_session_id:
+        access_token = await auth.get_valid_access_token(request.auth_session_id)
+    
+    # Get or create client for this user
+    client = await pool.get_client(request.auth_session_id, access_token)
+    
+    async def event_generator():
+        try:
+            async for event in client.process_query_stream(
+                request.query, request.session_id
+            ):
+                yield f"data: {json.dumps(event)}\n\n"
+        finally:
+            await pool.release_client(request.auth_session_id)
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
+
+
+# =============================================================================
+# SESSION MANAGEMENT ENDPOINTS
+# =============================================================================
 
 @app.post("/sessions")
 async def create_session():
     """Create a new conversation session."""
-    session_id = app.state.client.create_session()
+    pool: MCPClientPool = app.state.client_pool
+    client = await pool.get_client(None, None)
+    session_id = client.create_session()
     return {"session_id": session_id}
 
 
 @app.get("/sessions")
 async def list_sessions():
     """List all active session IDs."""
-    sessions = app.state.client.list_sessions()
+    pool: MCPClientPool = app.state.client_pool
+    client = await pool.get_client(None, None)
+    sessions = client.list_sessions()
     return {"sessions": sessions}
 
 
 @app.get("/sessions/{session_id}")
 async def get_session(session_id: str):
     """Get messages for a specific session."""
-    messages = app.state.client.get_session(session_id)
+    pool: MCPClientPool = app.state.client_pool
+    client = await pool.get_client(None, None)
+    messages = client.get_session(session_id)
     if messages is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"session_id": session_id, "messages": messages}
@@ -284,19 +316,17 @@ async def get_session(session_id: str):
 @app.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
     """Delete a conversation session."""
-    deleted = app.state.client.delete_session(session_id)
+    pool: MCPClientPool = app.state.client_pool
+    client = await pool.get_client(None, None)
+    deleted = client.delete_session(session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"message": "Session deleted"}
 
 
-# ============ OAuth Authentication Endpoints ============
-
-class OAuthCallbackRequest(BaseModel):
-    """Request model for OAuth callback."""
-    code: str = Field(..., description="Authorization code from Salla")
-    state: str | None = Field(default=None, description="CSRF state parameter")
-
+# =============================================================================
+# OAUTH AUTHENTICATION ENDPOINTS
+# =============================================================================
 
 @app.get("/auth/salla/url")
 async def get_auth_url():
@@ -312,7 +342,7 @@ async def get_auth_url():
         )
     
     state = auth.generate_state()
-    auth.store_state(state)
+    await auth.store_state(state)
     auth_url = auth.generate_auth_url(state)
     
     return {"auth_url": auth_url, "state": state}
@@ -323,11 +353,14 @@ async def oauth_callback(request: OAuthCallbackRequest):
     """Handle OAuth callback from Salla.
     
     Exchanges the authorization code for access and refresh tokens.
+    Validates CSRF state parameter for security.
     Returns merchant info on success.
     """
-    # Note: State validation is optional for demo but recommended for production
-    # if request.state and not auth.validate_state(request.state):
-    #     raise HTTPException(status_code=400, detail="Invalid state parameter")
+    # CSRF state validation (enabled for production)
+    if request.state:
+        valid_state = await auth.validate_state(request.state)
+        if not valid_state:
+            raise HTTPException(status_code=400, detail="Invalid or expired state parameter")
     
     try:
         # Exchange code for tokens
@@ -340,11 +373,10 @@ async def oauth_callback(request: OAuthCallbackRequest):
             merchant_info = await auth.get_merchant_info(access_token)
         
         # Generate a session ID for this authenticated user
-        import uuid
         session_id = str(uuid.uuid4())
         
-        # Store tokens
-        auth.store_tokens(session_id, tokens, merchant_info)
+        # Store tokens using repository
+        await auth.store_tokens(session_id, tokens, merchant_info)
         
         return {
             "success": True,
@@ -366,11 +398,8 @@ async def oauth_callback(request: OAuthCallbackRequest):
 async def auth_status():
     """Check authentication status.
     
-    For demo purposes, this checks if any session is authenticated.
-    In production, you'd use cookies or Bearer tokens to identify the session.
+    In production, use auth_session_id from request to check status.
     """
-    # For demo: check localStorage session on frontend
-    # Real implementation would use HTTP-only cookies or session headers
     return {
         "authenticated": False,
         "merchant_info": None,
@@ -380,13 +409,13 @@ async def auth_status():
 
 @app.post("/auth/logout")
 async def logout():
-    """Logout and clear session.
-    
-    In production, this would invalidate the session cookie/token.
-    """
-    # For demo: frontend handles logout by clearing localStorage
+    """Logout and clear session."""
     return {"success": True}
 
+
+# =============================================================================
+# MAIN ENTRY POINT
+# =============================================================================
 
 if __name__ == "__main__":
     import uvicorn

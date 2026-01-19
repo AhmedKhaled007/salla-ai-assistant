@@ -25,7 +25,7 @@ def format_error(error: Exception) -> str:
 async def extract_token_from_context(ctx: Context) -> None:
     """Extract access token from request context and set for current request.
     
-    For SSE transport, the token is passed in the Authorization header.
+    For HTTP transport, the token is passed in the Authorization header.
     This function extracts it and sets it in the context variable for salla_client.
     """
     try:
@@ -46,6 +46,7 @@ async def extract_token_from_context(ctx: Context) -> None:
 
 @mcp.tool()
 async def list_products(
+    ctx: Context,
     page: int = 1,
     per_page: int = 15,
     keyword: str = "",
@@ -63,6 +64,7 @@ async def list_products(
     Returns:
         JSON string with list of products and pagination info
     """
+    await extract_token_from_context(ctx)
     try:
         params = {"page": page, "per_page": min(per_page, 60)}
         if keyword:
@@ -77,7 +79,7 @@ async def list_products(
 
 
 @mcp.tool()
-async def get_product(product_id: int) -> str:
+async def get_product(ctx: Context, product_id: int) -> str:
     """
     Get detailed information about a specific product.
     
@@ -87,6 +89,7 @@ async def get_product(product_id: int) -> str:
     Returns:
         JSON string with product details including name, price, quantity, images, etc.
     """
+    await extract_token_from_context(ctx)
     try:
         result = await salla_client.get(f"/products/{product_id}")
         return format_response(result)
@@ -96,6 +99,7 @@ async def get_product(product_id: int) -> str:
 
 @mcp.tool()
 async def create_product(
+    ctx: Context,
     name: str,
     price: float,
     product_type: str = "product",
@@ -119,6 +123,7 @@ async def create_product(
     Returns:
         JSON string with created product details
     """
+    await extract_token_from_context(ctx)
     try:
         data = {
             "name": name,
@@ -142,6 +147,7 @@ async def create_product(
 
 @mcp.tool()
 async def update_product(
+    ctx: Context,
     product_id: int,
     name: str = "",
     price: float = 0,
@@ -163,6 +169,7 @@ async def update_product(
     Returns:
         JSON string with updated product details
     """
+    await extract_token_from_context(ctx)
     try:
         data = {}
         if name:
@@ -191,6 +198,7 @@ async def update_product(
 
 @mcp.tool()
 async def list_orders(
+    ctx: Context,
     page: int = 1,
     per_page: int = 15,
     status: str = "",
@@ -208,6 +216,7 @@ async def list_orders(
     Returns:
         JSON string with list of orders and pagination info
     """
+    await extract_token_from_context(ctx)
     try:
         params = {"page": page, "per_page": min(per_page, 60)}
         if status:
@@ -222,7 +231,7 @@ async def list_orders(
 
 
 @mcp.tool()
-async def get_order(order_id: int) -> str:
+async def get_order(ctx: Context, order_id: int) -> str:
     """
     Get detailed information about a specific order.
     
@@ -232,6 +241,7 @@ async def get_order(order_id: int) -> str:
     Returns:
         JSON string with order details including items, customer, shipping, payment info
     """
+    await extract_token_from_context(ctx)
     try:
         result = await salla_client.get(f"/orders/{order_id}")
         return format_response(result)
@@ -241,6 +251,7 @@ async def get_order(order_id: int) -> str:
 
 @mcp.tool()
 async def create_order(
+    ctx: Context,
     customer_id: int,
     products: list[dict],
     shipping_method: int = 0,
@@ -260,6 +271,7 @@ async def create_order(
     Returns:
         JSON string with created order details
     """
+    await extract_token_from_context(ctx)
     try:
         data = {
             "customer": customer_id,
@@ -280,6 +292,7 @@ async def create_order(
 
 @mcp.tool()
 async def update_order_status(
+    ctx: Context,
     order_id: int,
     status_id: int,
     notify_customer: bool = True,
@@ -295,6 +308,7 @@ async def update_order_status(
     Returns:
         JSON string with updated order details
     """
+    await extract_token_from_context(ctx)
     try:
         data = {
             "status_id": status_id,
@@ -312,6 +326,7 @@ async def update_order_status(
 
 @mcp.tool()
 async def list_customers(
+    ctx: Context,
     page: int = 1,
     per_page: int = 15,
     keyword: str = "",
@@ -327,6 +342,7 @@ async def list_customers(
     Returns:
         JSON string with list of customers and pagination info
     """
+    await extract_token_from_context(ctx)
     try:
         params = {"page": page, "per_page": min(per_page, 60)}
         if keyword:
@@ -339,7 +355,7 @@ async def list_customers(
 
 
 @mcp.tool()
-async def get_customer(customer_id: int) -> str:
+async def get_customer(ctx: Context, customer_id: int) -> str:
     """
     Get detailed information about a specific customer.
     
@@ -349,6 +365,7 @@ async def get_customer(customer_id: int) -> str:
     Returns:
         JSON string with customer details including name, contact info, addresses, orders
     """
+    await extract_token_from_context(ctx)
     try:
         result = await salla_client.get(f"/customers/{customer_id}")
         return format_response(result)
@@ -358,6 +375,7 @@ async def get_customer(customer_id: int) -> str:
 
 @mcp.tool()
 async def create_customer(
+    ctx: Context,
     first_name: str,
     last_name: str = "",
     mobile: str = "",
@@ -377,6 +395,7 @@ async def create_customer(
     Returns:
         JSON string with created customer details
     """
+    await extract_token_from_context(ctx)
     try:
         data = {
             "first_name": first_name,
@@ -400,13 +419,14 @@ async def create_customer(
 # =============================================================================
 
 @mcp.tool()
-async def get_store_info() -> str:
+async def get_store_info(ctx: Context) -> str:
     """
     Get information about the Salla store.
     
     Returns:
         JSON string with store details including name, domain, plan, currency, settings
     """
+    await extract_token_from_context(ctx)
     try:
         result = await salla_client.get("/store/info")
         return format_response(result)
@@ -442,8 +462,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.transport == "http":
-        # Run with Streamable HTTP transport (recommended for production)
-        mcp.run(transport="streamable-http", host=args.host, port=args.port)
+        # Run with Streamable HTTP transport using uvicorn
+        import uvicorn
+        
+        # Get the ASGI app from FastMCP
+        app = mcp.streamable_http_app()
+        uvicorn.run(app, host=args.host, port=args.port)
     else:
         # Run with stdio for local development
         mcp.run()
+
