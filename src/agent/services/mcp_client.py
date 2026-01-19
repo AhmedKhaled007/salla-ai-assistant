@@ -127,7 +127,7 @@ class MCPClient:
     async def list_conversations(self) -> list[str]:
         """List all active conversation IDs."""
         repo = self._conversation_repo
-        return await repo.list_sessions()
+        return await repo.list_conversations()
         
     async def set_access_token(self, access_token: str) -> bool:
         """Update the Salla access token.
