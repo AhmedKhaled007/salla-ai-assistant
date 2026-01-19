@@ -3,7 +3,8 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi import Request
 
-from ...services import MCPClientPool
+from ...services import MCPClientPool, get_valid_access_token
+from .auth import get_auth_session_id
 
 router = APIRouter()
 
@@ -12,31 +13,41 @@ def get_pool(request: Request) -> MCPClientPool:
 
 
 @router.post("/conversations")
-async def create_conversation(req: Request):
+async def create_conversation(
+    req: Request,
+    auth_session_id: str = Depends(get_auth_session_id)
+):
     """Create a new conversation."""
     pool = get_pool(req)
-    # We can use default client to generate a conversation ID since IDs are universal
-    # or just use uuid here directly. But strictly speaking, conversation creating calls client.
-    client = await pool.get_client(None, None)
+    access_token = await get_valid_access_token(auth_session_id)
+    client = await pool.get_client(auth_session_id, access_token)
     conversation_id = await client.create_conversation()
     return {"conversation_id": conversation_id}
 
 
 @router.get("/conversations")
-async def list_conversations(req: Request):
+async def list_conversations(
+    req: Request,
+    auth_session_id: str = Depends(get_auth_session_id)
+):
     """List all active conversation IDs."""
     pool = get_pool(req)
-    client = await pool.get_client(None, None)
+    access_token = await get_valid_access_token(auth_session_id)
+    client = await pool.get_client(auth_session_id, access_token)
     conversations = await client.list_conversations()
     return {"conversations": conversations}
 
 
 @router.get("/conversations/{conversation_id}")
-async def get_conversation(conversation_id: str, req: Request):
+async def get_conversation(
+    conversation_id: str, 
+    req: Request,
+    auth_session_id: str = Depends(get_auth_session_id)
+):
     """Get messages for a specific conversation."""
     pool = get_pool(req)
-    # Conversation storage is shared, so any client can access (in this current design)
-    client = await pool.get_client(None, None)
+    access_token = await get_valid_access_token(auth_session_id)
+    client = await pool.get_client(auth_session_id, access_token)
     messages = await client.get_conversation(conversation_id)
     if messages is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -44,10 +55,15 @@ async def get_conversation(conversation_id: str, req: Request):
 
 
 @router.delete("/conversations/{conversation_id}")
-async def delete_conversation(conversation_id: str, req: Request):
+async def delete_conversation(
+    conversation_id: str, 
+    req: Request,
+    auth_session_id: str = Depends(get_auth_session_id)
+):
     """Delete a conversation."""
     pool = get_pool(req)
-    client = await pool.get_client(None, None)
+    access_token = await get_valid_access_token(auth_session_id)
+    client = await pool.get_client(auth_session_id, access_token)
     success = await client.delete_conversation(conversation_id)
     if not success:
         raise HTTPException(status_code=404, detail="Conversation not found")
