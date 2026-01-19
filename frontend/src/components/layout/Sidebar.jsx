@@ -43,8 +43,8 @@ export function Sidebar({
 
             {/* Sidebar Content */}
             <aside className={`
-                fixed lg:relative z-50 w-[280px] h-screen flex flex-col bg-bg-primary border-e border-border shrink-0 shadow-sm transition-transform duration-300 lg:transform-none
-                ${isOpen ? 'translate-x-0' : 'ltr:-translate-x-full rtl:translate-x-full'}
+                fixed lg:relative z-50 w-[280px] h-screen flex flex-col bg-bg-primary border-e border-border shrink-0 shadow-sm transition-transform duration-300
+                lg:!translate-x-0 ${isOpen ? 'translate-x-0' : 'ltr:-translate-x-full rtl:translate-x-full'}
             `}>
                 {/* Header */}
                 <div className="p-6 border-b border-border flex flex-col gap-6 relative">

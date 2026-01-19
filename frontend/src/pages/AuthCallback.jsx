@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -8,9 +8,16 @@ export function AuthCallback() {
     const { handleCallback } = useAuth();
     const [status, setStatus] = useState('processing');
     const [errorMessage, setErrorMessage] = useState('');
+    const processedRef = useRef(false);
 
     useEffect(() => {
         const processCallback = async () => {
+            // Prevent duplicate calls (React StrictMode, dependency changes, etc.)
+            if (processedRef.current) {
+                return;
+            }
+            processedRef.current = true;
+
             const code = searchParams.get('code');
             const error = searchParams.get('error');
             const errorDescription = searchParams.get('error_description');

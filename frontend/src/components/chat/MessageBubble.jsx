@@ -41,6 +41,65 @@ function CodeBlock({ children, className }) {
 }
 
 /**
+ * Collapsible tool call message - hidden by default
+ */
+function CollapsibleToolCall({ message }) {
+    const [isExpanded, setIsExpanded] = useState(false);
+
+    return (
+        <div className="flex flex-col max-w-[90%] me-auto mb-2 animate-fade-in">
+            <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="flex items-center gap-2 px-3 py-1.5 bg-accent/20 border border-primary/10 rounded-lg hover:bg-accent/30 transition-colors text-start"
+            >
+                <span className="text-xs text-primary">{isExpanded ? '▼' : '▶'}</span>
+                <span className="text-primary">⚙️</span>
+                <span className="text-xs font-medium text-primary">Tool: {message.toolName}</span>
+            </button>
+            {isExpanded && message.toolArgs && Object.keys(message.toolArgs).length > 0 && (
+                <div className="mt-1 ms-4 px-3 py-2 bg-bg-tertiary rounded text-xs font-mono text-text-secondary border border-border">
+                    <div className="text-[10px] text-text-muted mb-1">Arguments:</div>
+                    {JSON.stringify(message.toolArgs, null, 2)}
+                </div>
+            )}
+        </div>
+    );
+}
+
+/**
+ * Collapsible tool result message - hidden by default
+ */
+function CollapsibleToolResult({ message }) {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const result = message.result;
+    const isError = typeof result === 'string' && result.toLowerCase().includes('error');
+
+    return (
+        <div className="flex flex-col max-w-[90%] me-auto mb-2 animate-fade-in">
+            <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                className={`flex items-center gap-2 px-3 py-1.5 border rounded-lg hover:opacity-80 transition-colors text-start ${isError ? 'bg-error/5 border-error/20' : 'bg-success/5 border-success/20'
+                    }`}
+            >
+                <span className="text-xs text-text-muted">{isExpanded ? '▼' : '▶'}</span>
+                <span>{isError ? '❌' : '✅'}</span>
+                <span className={`text-xs font-medium ${isError ? 'text-error' : 'text-success'}`}>
+                    Result: {message.toolName}
+                </span>
+            </button>
+            {isExpanded && (
+                <div className={`mt-1 ms-4 border rounded-lg p-3 overflow-x-auto ${isError ? 'border-error/30 bg-error/5' : 'border-success/30 bg-bg-secondary'
+                    }`}>
+                    <pre className="font-mono text-xs text-text-secondary whitespace-pre-wrap break-words m-0">
+                        {typeof result === 'string' ? result : JSON.stringify(result, null, 2)}
+                    </pre>
+                </div>
+            )}
+        </div>
+    );
+}
+
+/**
  * Renders a single message bubble
  */
 export function MessageBubble({ message }) {
@@ -134,43 +193,12 @@ export function MessageBubble({ message }) {
 
     // Render tool call (streaming - when tool is being called)
     if (isToolCall) {
-        return (
-            <div className="flex flex-col max-w-[90%] me-auto mb-3 animate-fade-in">
-                <div className="flex items-center gap-2 px-4 py-2.5 bg-accent/30 border border-primary/20 rounded-lg">
-                    <span className="animate-spin text-primary">⚙️</span>
-                    <span className="text-sm font-medium text-primary">Calling: {message.toolName}</span>
-                </div>
-                {message.toolArgs && Object.keys(message.toolArgs).length > 0 && (
-                    <div className="mt-1 ms-4 px-3 py-2 bg-bg-tertiary rounded text-xs font-mono text-text-secondary">
-                        {JSON.stringify(message.toolArgs, null, 2)}
-                    </div>
-                )}
-            </div>
-        );
+        return <CollapsibleToolCall message={message} />;
     }
 
     // Render tool result (streaming - when tool returns)
     if (isToolResult) {
-        const result = message.result;
-        const isError = typeof result === 'string' && result.toLowerCase().includes('error');
-
-        return (
-            <div className="flex flex-col max-w-[90%] me-auto mb-3 animate-fade-in">
-                <div className={`flex items-center gap-2 px-4 py-2 border border-b-0 rounded-t-lg ${isError ? 'bg-error/10 border-error/30' : 'bg-success/10 border-success/30'
-                    }`}>
-                    <span>{isError ? '❌' : '✅'}</span>
-                    <span className={`text-sm font-medium ${isError ? 'text-error' : 'text-success'}`}>
-                        {message.toolName}
-                    </span>
-                </div>
-                <div className={`border rounded-b-lg p-3 overflow-x-auto ${isError ? 'border-error/30 bg-error/5' : 'border-success/30 bg-bg-secondary'
-                    }`}>
-                    <pre className="font-mono text-xs text-text-secondary whitespace-pre-wrap break-words m-0">
-                        {typeof result === 'string' ? result : JSON.stringify(result, null, 2)}
-                    </pre>
-                </div>
-            </div>
-        );
+        return <CollapsibleToolResult message={message} />;
     }
 
     // Render legacy tool result

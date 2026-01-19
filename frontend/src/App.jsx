@@ -99,12 +99,37 @@ function ChatApp() {
         // Convert messages to frontend format
         const formattedMessages = data.messages
           .filter(msg => msg.role !== 'system')
-          .map((msg, index) => ({
-            id: Date.now() + index,
-            role: msg.role,
-            content: msg.content,
-            timestamp: new Date().toISOString(),
-          }));
+          .map((msg, index) => {
+            const baseMessage = {
+              id: Date.now() + index,
+              timestamp: new Date().toISOString(),
+            };
+
+            // Handle tool result messages (backend uses role: 'tool')
+            if (msg.role === 'tool') {
+              return {
+                ...baseMessage,
+                role: 'tool_result',
+                toolName: msg.name || 'Unknown Tool',
+                result: msg.content,
+              };
+            }
+
+            // Handle assistant messages with tool_calls array
+            if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+              // We'll skip these in favor of keeping just the final response
+              // Tool calls are already shown via the 'tool' messages
+              return null;
+            }
+
+            // Regular user/assistant messages
+            return {
+              ...baseMessage,
+              role: msg.role,
+              content: msg.content,
+            };
+          })
+          .filter(Boolean); // Remove null entries
         setMessages(formattedMessages);
       }
     } catch (err) {
