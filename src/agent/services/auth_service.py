@@ -4,7 +4,7 @@ This module encapsulates all logic related to Salla OAuth flow,
 token exchange, refreshing, and storage.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 import urllib.parse
 from typing import Optional, Dict, Any
@@ -85,7 +85,7 @@ async def exchange_code_for_tokens(code: str) -> Dict[str, Any]:
         try:
             response = await client.post(token_url, data=payload)
             response.raise_for_status()
-            logger.info(f"Token exchanged successfully: {response.json()}")
+            logger.info("Token exchanged successfully")
             return response.json()
         except httpx.HTTPStatusError as e:
             logger.error(f"Token exchange failed: {e.response.text}")
@@ -121,7 +121,7 @@ async def refresh_access_token(refresh_token: str) -> Dict[str, Any]:
         try:
             response = await client.post(token_url, data=payload)
             response.raise_for_status()
-            logger.info(f"Token refreshed successfully: {response.json()}")
+            logger.info("Token refreshed successfully")
             return response.json()
         except httpx.HTTPStatusError as e:
             logger.error(f"Token refresh failed: {e.response.text}")
@@ -187,7 +187,7 @@ async def store_tokens(
     token_data = {
         "access_token": tokens.get("access_token"),
         "refresh_token": tokens.get("refresh_token"),
-        "expires_at": (datetime.now() + timedelta(seconds=expires_in)).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat(),
         "scope": tokens.get("scope", ""),
     }
     
@@ -245,7 +245,7 @@ async def is_authenticated(session_id: str) -> bool:
     expires_at_str = token_data.get("expires_at")
     if expires_at_str:
         expires_at = datetime.fromisoformat(expires_at_str)
-        if datetime.now() < expires_at:
+        if datetime.now(timezone.utc) < expires_at:
             return True
             
     # Attempt refresh if expired but we have refresh token
@@ -279,7 +279,7 @@ async def get_valid_access_token(session_id: str) -> Optional[str]:
     if expires_at_str:
         expires_at = datetime.fromisoformat(expires_at_str)
         # Refresh if expired or expiring in < 5 mins
-        if datetime.now() + timedelta(minutes=5) > expires_at:
+        if datetime.now(timezone.utc) + timedelta(minutes=5) > expires_at:
             logger.info(f"Token for session {session_id} expired/expiring, refreshing...")
             refresh_token = token_data.get("refresh_token")
             if refresh_token:

@@ -33,11 +33,11 @@ class Settings(BaseSettings):
     # Agent Configuration
     max_iterations: int = 10  # Max tool-calling iterations per query
     max_query_length: int = 10000  # Max characters in query (prevent abuse)
-    llm_max_tokens: int | None = None  # Max tokens for LLM response (None = model default)
+    llm_max_tokens: int | None = 4096  # Max tokens for LLM response (None = model default)
     tool_timeout: float = 30.0  # Timeout in seconds for tool execution
 
     # CORS Configuration
-    allowed_origins: str = "http://localhost:3000,http://localhost:5173"  # Comma-separated origins
+    allowed_origins: str = "http://localhost:5173"  # Comma-separated origins
 
     # Rate Limiting Configuration
     rate_limit_enabled: bool = True
@@ -49,11 +49,11 @@ class Settings(BaseSettings):
     api_key: str | None = None  # Set API_KEY env var to enable authentication
 
     # Salla OAuth Configuration
-    salla_client_id: str = ""  # Salla Partner App Client ID
-    salla_client_secret: str = ""  # Salla Partner App Client Secret
-    salla_redirect_uri: str = "http://localhost:5173/auth/callback"
+    salla_client_id: str
+    salla_client_secret: str 
+    salla_redirect_uri: str
     salla_oauth_base_url: str = "https://accounts.salla.sa/oauth2"
-    salla_scopes: str = "offline_access"  # Space-separated OAuth scopes
+    salla_scopes: str = "offline_access"
 
     # Logging Configuration
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"

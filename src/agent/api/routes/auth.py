@@ -12,7 +12,6 @@ from ...services import (
     store_tokens,
     delete_tokens,
     is_authenticated,
-    is_authenticated,
     get_tokens
 )
 from ...core import get_user_repository
@@ -50,10 +49,12 @@ async def oauth_callback_endpoint(request: OAuthCallbackRequest):
     Validates CSRF state parameter for security.
     Returns merchant info on success.
     """
-    # 1. Validate state
-    if request.state:
-        if not await validate_state(request.state):
-            raise HTTPException(status_code=400, detail="Invalid or expired CSRF state")
+    # 1. Validate state (REQUIRED for CSRF protection)
+    if not request.state:
+        raise HTTPException(status_code=400, detail="Missing required CSRF state parameter")
+    
+    if not await validate_state(request.state):
+        raise HTTPException(status_code=400, detail="Invalid or expired CSRF state")
             
     # 2. Exchange code for tokens
     try:

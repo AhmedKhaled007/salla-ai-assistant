@@ -5,7 +5,7 @@ Contains the abstract TokenRepository interface and implementations.
 
 from abc import ABC, abstractmethod
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 from sqlalchemy import select, delete
 from ..core.database import get_db
@@ -72,7 +72,7 @@ class InMemoryTokenRepository(TokenRepository):
             self._store[session_id] = {
                 **tokens,
                 "user_id": user_id,
-                "_expires_at": datetime.now() + timedelta(seconds=ttl_seconds),
+                "_expires_at": datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds),
             }
 
     async def get(self, session_id: str) -> Optional[dict]:
@@ -82,7 +82,7 @@ class InMemoryTokenRepository(TokenRepository):
                 return None
             
             # Check expiry
-            if datetime.now() > data.get("_expires_at", datetime.max):
+            if datetime.now(timezone.utc) > data.get("_expires_at", datetime.max.replace(tzinfo=timezone.utc)):
                 del self._store[session_id]
                 return None
             
@@ -107,7 +107,7 @@ class SQLAlchemyTokenRepository(TokenRepository):
         self, session_id: str, tokens: dict, ttl_seconds: int = 3600, user_id: int | None = None
     ) -> None:
         async for session in get_db():
-            expires_at = datetime.now() + timedelta(seconds=ttl_seconds)
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
             
             # Check if exists
             stmt = select(AuthSession).where(AuthSession.session_id == session_id)
@@ -164,7 +164,7 @@ class SQLAlchemyTokenRepository(TokenRepository):
             # I will fix the store() implementation to use timezone.utc if possible, 
             # or just rely on what's passed.
             
-            if auth_session.expires_at < datetime.now(auth_session.expires_at.tzinfo):
+            if auth_session.expires_at < datetime.now(timezone.utc):
                  # Expired
                  # Lazily delete?
                  await session.delete(auth_session)

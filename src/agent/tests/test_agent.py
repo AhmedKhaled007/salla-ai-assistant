@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
 
 from src.agent.services import MCPClient, MCPClientPool
+from src.agent.services.conversation import ConversationService
 from src.agent.main import app
 from src.agent.repositories import (
     InMemoryTokenRepository,
@@ -22,72 +23,90 @@ from src.agent.repositories import (
 class TestMCPClient:
     """Tests for MCPClient class."""
 
+    async def test_client_initialization(self):
+        """Test MCPClient can be initialized with different transports."""
+        client = MCPClient(transport="http")
+        assert client.transport == "http"
+        assert client.session is None  # Not connected yet
+        
+        client_stdio = MCPClient(transport="stdio")
+        assert client_stdio.transport == "stdio"
+
+    async def test_is_connected_returns_false_when_not_connected(self):
+        """Test is_connected returns False when no session exists."""
+        client = MCPClient()
+        assert client.is_connected() is False
+
+    async def test_conversation_service_is_initialized(self):
+        """Test MCPClient initializes ConversationService."""
+        client = MCPClient()
+        assert client.conversation_service is not None
+        assert isinstance(client.conversation_service, ConversationService)
+
+
+@pytest.mark.asyncio
+class TestConversationService:
+    """Tests for ConversationService class."""
+
     async def test_create_conversation(self):
         """Test conversation creation returns valid UUID."""
-        client = MCPClient()
-        conversation_id = await client.create_conversation()
-        
-        assert conversation_id is not None
-        assert len(conversation_id) == 36  # UUID format
+        with patch.object(ConversationService, '_conversation_repo') as mock_repo:
+            mock_repo.create = AsyncMock()
+            service = ConversationService()
+            service._conversation_repo = mock_repo
+            
+            # Note: create_conversation requires user_id
+            conversation_id = await service.create_conversation(user_id=1)
+            
+            assert conversation_id is not None
+            assert len(conversation_id) == 36  # UUID format
 
-    async def test_get_conversation_existing(self):
-        """Test getting an existing conversation."""
-        client = MCPClient()
-        conversation_id = await client.create_conversation()
-        
-        # Manually inject conversation into repo for testing
-        repo = client._conversation_repo
-        await repo.store(conversation_id, [{"role": "test"}])
-        
-        messages = await client.get_conversation(conversation_id)
-        
-        assert messages is not None
-        assert len(messages) == 1
-        assert messages[0]["role"] == "test"
+    async def test_get_history_returns_messages(self):
+        """Test getting conversation history."""
+        with patch.object(ConversationService, '_conversation_repo') as mock_repo:
+            mock_repo.get = AsyncMock(return_value=[{"role": "user", "content": "test"}])
+            service = ConversationService()
+            service._conversation_repo = mock_repo
+            
+            messages = await service.get_history("test-conversation-id")
+            
+            assert messages is not None
+            assert len(messages) == 1
+            assert messages[0]["role"] == "user"
 
-    async def test_get_conversation_nonexistent(self):
-        """Test getting a non-existent conversation returns None."""
-        client = MCPClient()
-        
-        messages = await client.get_conversation("nonexistent-id")
-        
-        assert messages is None
+    async def test_get_history_nonexistent(self):
+        """Test getting history for non-existent conversation returns empty list."""
+        with patch.object(ConversationService, '_conversation_repo') as mock_repo:
+            mock_repo.get = AsyncMock(return_value=None)
+            service = ConversationService()
+            service._conversation_repo = mock_repo
+            
+            messages = await service.get_history("nonexistent-id")
+            
+            # Returns empty list when conversation doesn't exist
+            assert messages == []
 
-    async def test_delete_conversation_existing(self):
-        """Test deleting an existing conversation."""
-        client = MCPClient()
-        conversation_id = await client.create_conversation()
-        repo = client._conversation_repo
-        await repo.store(conversation_id, [])
-        
-        deleted = await client.delete_conversation(conversation_id)
-        
-        assert deleted is True
+    async def test_save_history(self):
+        """Test saving conversation history."""
+        with patch.object(ConversationService, '_conversation_repo') as mock_repo:
+            mock_repo.store = AsyncMock()
+            service = ConversationService()
+            service._conversation_repo = mock_repo
+            
+            await service.save_history("test-id", [{"role": "user", "content": "hello"}])
+            
+            mock_repo.store.assert_called_once()
 
-    async def test_delete_conversation_nonexistent(self):
-        """Test deleting a non-existent conversation returns False."""
-        client = MCPClient()
-        
-        deleted = await client.delete_conversation("nonexistent-id")
-        
-        assert deleted is False
-
-    async def test_list_conversations(self):
-        """Test listing all conversations."""
-        client = MCPClient()
-        id1 = await client.create_conversation()
-        id2 = await client.create_conversation()
-        
-        # Ensure stored
-        repo = client._conversation_repo
-        await repo.store(id1, [])
-        await repo.store(id2, [])
-        
-        conversations = await client.list_conversations()
-        
-        assert len(conversations) >= 2
-        assert id1 in conversations
-        assert id2 in conversations
+    async def test_delete_conversation(self):
+        """Test deleting a conversation."""
+        with patch.object(ConversationService, '_conversation_repo') as mock_repo:
+            mock_repo.delete = AsyncMock(return_value=True)
+            service = ConversationService()
+            service._conversation_repo = mock_repo
+            
+            deleted = await service.delete("test-id")
+            
+            assert deleted is True
 
 
 # ============================================================================

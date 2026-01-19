@@ -16,6 +16,7 @@ import json
 import os
 import uuid
 from datetime import datetime
+from httpx import ConnectError, TimeoutException as HttpxTimeoutException
 
 import aiofiles
 
@@ -59,8 +60,76 @@ class MCPClient:
         self._access_token: Optional[str] = None
         self.user_id = user_id
         
+        # Cached tool definitions (refreshed on connect/reconnect)
+        self._cached_tools: Optional[list] = None
+        self._cached_openai_tools: Optional[list] = None
+        
         # Repositories / Services
         self.conversation_service = ConversationService()
+    
+    async def _execute_tool_with_retry(
+        self,
+        tool_name: str,
+        tool_args: dict,
+        max_retries: int = 2,
+    ) -> str:
+        """Execute a tool call with timeout and retry logic.
+        
+        Args:
+            tool_name: Name of the tool to execute
+            tool_args: Arguments to pass to the tool
+            max_retries: Maximum number of retry attempts for transient failures
+            
+        Returns:
+            Tool output as string
+            
+        Raises:
+            asyncio.TimeoutError: If tool execution times out after all retries
+            Exception: Other errors from tool execution
+        """
+        last_error = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # Execute with timeout
+                result = await asyncio.wait_for(
+                    self.session.call_tool(tool_name, tool_args),
+                    timeout=settings.tool_timeout
+                )
+                
+                # Format result text
+                if hasattr(result, 'content') and result.content:
+                    return "\n".join([c.text for c in result.content if c.type == 'text'])
+                return str(result)
+                
+            except asyncio.TimeoutError as e:
+                last_error = e
+                if attempt < max_retries:
+                    logger.warning(
+                        f"Tool {tool_name} timed out (attempt {attempt + 1}/{max_retries + 1}), retrying..."
+                    )
+                    await asyncio.sleep(0.5 * (attempt + 1))  # Exponential backoff
+                else:
+                    raise asyncio.TimeoutError(
+                        f"Tool {tool_name} timed out after {settings.tool_timeout}s"
+                    )
+                    
+            except (ConnectError, HttpxTimeoutException, ConnectionError, OSError) as e:
+                # Transient network errors - retry
+                last_error = e
+                if attempt < max_retries:
+                    logger.warning(
+                        f"Tool {tool_name} failed with {type(e).__name__} "
+                        f"(attempt {attempt + 1}/{max_retries + 1}), retrying..."
+                    )
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                else:
+                    raise
+                    
+            except Exception as e:
+                # Non-retryable errors (4xx client errors, validation errors, etc.)
+                raise
+        
 
     def is_connected(self) -> bool:
         """Check if the MCP server connection is active."""
@@ -224,7 +293,7 @@ class MCPClient:
             return False
             
     async def _load_tools(self):
-        """Load available tools from MCP server."""
+        """Load available tools from MCP server and cache them."""
         if not self.session:
              return
              
@@ -232,17 +301,46 @@ class MCPClient:
              # Just initialize connection/handshake
              await self.session.initialize()
              
-             # Verify tools can be listed
-             tools = await self.session.list_tools()
-             tool_names = [t.name for t in tools.tools]
-             logger.debug(f"Loaded tools: {tool_names}")
+             # Load and cache tools
+             tools_result = await self.session.list_tools()
+             self._cached_tools = tools_result.tools
+             
+             # Also cache in OpenAI format for LLM calls
+             self._cached_openai_tools = []
+             for tool in self._cached_tools:
+                 self._cached_openai_tools.append({
+                     "type": "function",
+                     "function": {
+                         "name": tool.name,
+                         "description": tool.description,
+                         "parameters": tool.inputSchema
+                     }
+                 })
+             
+             tool_names = [t.name for t in self._cached_tools]
+             logger.debug(f"Loaded and cached {len(tool_names)} tools: {tool_names}")
              
         except Exception as e:
              logger.error(f"Failed to load tools: {e}")
              raise
+    
+    def _get_openai_tools(self) -> list:
+        """Get cached OpenAI-format tools.
+        
+        Returns:
+            List of tools in OpenAI function calling format.
+            
+        Raises:
+            RuntimeError: If tools haven't been loaded yet.
+        """
+        if self._cached_openai_tools is None:
+            raise RuntimeError("Tools not loaded. Call ensure_connected() first.")
+        return self._cached_openai_tools
 
     async def get_mcp_tools(self):
         """Get the list of available tools from the MCP server.
+        
+        Uses cached tools if available.
         
         Returns:
             List of Tool objects from the MCP server.
@@ -251,6 +349,8 @@ class MCPClient:
             Exception: If retrieving tools fails.
         """
         await self.ensure_connected()
+        if self._cached_tools is not None:
+            return self._cached_tools
         result = await self.session.list_tools()
         return result.tools
 
@@ -291,20 +391,8 @@ class MCPClient:
         # Add user query
         messages.append({"role": "user", "content": query})
 
-        # Get available tools
-        available_tools = await self.session.list_tools()
-        
-        # Convert MCP tools to OpenAI tool format
-        openai_tools = []
-        for tool in available_tools.tools:
-            openai_tools.append({
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.inputSchema
-                }
-            })
+        # Get cached tools in OpenAI format
+        openai_tools = self._get_openai_tools()
 
         # Process with tool loop
         iteration_count = 0
@@ -331,16 +419,9 @@ class MCPClient:
                         try:
                             tool_args = json.loads(tool_args_str)
                             
-                            # Execute on MCP server
-                            result = await self.session.call_tool(tool_name, tool_args)
-                            
-                            # Format result text
-                            tool_output = ""
-                            if hasattr(result, 'content') and result.content:
-                                 tool_output = "\n".join([c.text for c in result.content if c.type == 'text'])
-                            else:
-                                 tool_output = str(result)
-                                 
+                            # Execute on MCP server with retry and timeout
+                            tool_output = await self._execute_tool_with_retry(tool_name, tool_args)
+                                  
                             # Add result to history
                             messages.append({
                                 "role": "tool",
@@ -349,6 +430,33 @@ class MCPClient:
                                 "content": tool_output
                             })
                             
+                        except json.JSONDecodeError as e:
+                            error_msg = f"Invalid JSON in tool arguments for {tool_name}: {str(e)}"
+                            logger.error(error_msg)
+                            messages.append({
+                                "role": "tool",
+                                "name": tool_name,
+                                "tool_call_id": tool_call_id,
+                                "content": error_msg
+                            })
+                        except asyncio.TimeoutError as e:
+                            error_msg = f"Tool {tool_name} timed out: {str(e)}"
+                            logger.error(error_msg)
+                            messages.append({
+                                "role": "tool",
+                                "name": tool_name,
+                                "tool_call_id": tool_call_id,
+                                "content": error_msg
+                            })
+                        except (ConnectError, HttpxTimeoutException, ConnectionError) as e:
+                            error_msg = f"Network error executing tool {tool_name}: {type(e).__name__} - {str(e)}"
+                            logger.error(error_msg)
+                            messages.append({
+                                "role": "tool",
+                                "name": tool_name,
+                                "tool_call_id": tool_call_id,
+                                "content": error_msg
+                            })
                         except Exception as e:
                             error_msg = f"Error executing tool {tool_name}: {str(e)}"
                             logger.error(error_msg)
@@ -405,45 +513,31 @@ class MCPClient:
              messages = await self.conversation_service.get_history(conversation_id)
         else:
              if not self.user_id:
-                  yield {"type": "error", "message": "Cannot auto-create conversation: User ID not provided"}
-                  return
+                yield {"type": "error", "message": "Cannot auto-create conversation: User ID not provided"}
+                return
              conversation_id = await self.conversation_service.create_conversation(user_id=self.user_id)
-             stored_messages = []
              
         yield {"type": "conversation", "conversation_id": conversation_id}
         
         if not messages:
-             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            try:
+                # Generate title for new conversations
+                title = await self.conversation_service.generate_title(query)
+                # Update title in background to not block too much, or await?
+                # User asked to "make request ... before run the mcp client"
+                # So we await generation, but maybe async save
+                await self.conversation_service.update_title(conversation_id, title)
+                logger.info(f"Set conversation {conversation_id} title to: {title}")
+            except Exception as e:
+                logger.warning(f"Failed to set conversation title: {e}")
+            
+            if title:
+                yield {"type": "title", "title": title}
         messages.append({"role": "user", "content": query})
 
-         # Generate title for new conversations
-        if not stored_messages:
-             try:
-                 title = await self.conversation_service.generate_title(query)
-                 # Update title in background to not block too much, or await?
-                 # User asked to "make request ... before run the mcp client"
-                 # So we await generation, but maybe async save
-                 await self.conversation_service.update_title(conversation_id, title)
-                 logger.info(f"Set conversation {conversation_id} title to: {title}")
-             except Exception as e:
-                 logger.warning(f"Failed to set conversation title: {e}")
-             
-             if title:
-                yield {"type": "title", "title": title}
-
-        # Get tools
-        available_tools = await self.session.list_tools()
-        openai_tools = []
-        for tool in available_tools.tools:
-            openai_tools.append({
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.inputSchema
-                }
-            })
+        # Get cached tools in OpenAI format
+        openai_tools = self._get_openai_tools()
 
         iteration_count = 0
         
@@ -514,16 +608,9 @@ class MCPClient:
                                 "tool_args": tool_args
                             }
                             
-                            # Execute on MCP server
-                            result = await self.session.call_tool(tool_name, tool_args)
-                            
-                            # Format result text
-                            tool_output = ""
-                            if hasattr(result, 'content') and result.content:
-                                 tool_output = "\n".join([c.text for c in result.content if c.type == 'text'])
-                            else:
-                                 tool_output = str(result)
-                                 
+                            # Execute on MCP server with retry and timeout
+                            tool_output = await self._execute_tool_with_retry(tool_name, tool_args)
+                                  
                             yield {
                                 "type": "tool_result",
                                 "tool_name": tool_name,
@@ -537,6 +624,36 @@ class MCPClient:
                                 "content": tool_output
                             })
                             
+                        except json.JSONDecodeError as e:
+                            error_msg = f"Invalid JSON in tool arguments for {tool_name}: {str(e)}"
+                            logger.error(error_msg)
+                            yield {"type": "error", "message": error_msg}
+                            messages.append({
+                                "role": "tool",
+                                "name": tool_name,
+                                "tool_call_id": tool_call_id,
+                                "content": error_msg
+                            })
+                        except asyncio.TimeoutError as e:
+                            error_msg = f"Tool {tool_name} timed out: {str(e)}"
+                            logger.error(error_msg)
+                            yield {"type": "error", "message": error_msg}
+                            messages.append({
+                                "role": "tool",
+                                "name": tool_name,
+                                "tool_call_id": tool_call_id,
+                                "content": error_msg
+                            })
+                        except (ConnectError, HttpxTimeoutException, ConnectionError) as e:
+                            error_msg = f"Network error executing tool {tool_name}: {type(e).__name__} - {str(e)}"
+                            logger.error(error_msg)
+                            yield {"type": "error", "message": error_msg}
+                            messages.append({
+                                "role": "tool",
+                                "name": tool_name,
+                                "tool_call_id": tool_call_id,
+                                "content": error_msg
+                            })
                         except Exception as e:
                             error_msg = f"Error executing tool {tool_name}: {str(e)}"
                             logger.error(error_msg)
