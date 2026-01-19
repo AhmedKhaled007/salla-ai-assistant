@@ -12,8 +12,10 @@ from ...services import (
     store_tokens,
     delete_tokens,
     is_authenticated,
+    is_authenticated,
     get_tokens
 )
+from ...core import get_user_repository
 
 router = APIRouter()
 
@@ -59,16 +61,33 @@ async def oauth_callback_endpoint(request: OAuthCallbackRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
         
+    
     # 3. Get merchant info
     access_token = tokens["access_token"]
     merchant_info = await get_merchant_info(access_token)
     
-    # 4. Create a session ID for the user (auth_session_id)
+    # 4. Create/Update User
+    user_id = None
+    if merchant_info:
+        user_repo = get_user_repository()
+        # Ensure we have the required unique ID
+        salla_user_id = str(merchant_info.get("id"))
+        if salla_user_id:
+            user_data = {
+                "name": merchant_info.get("name"),
+                "email": merchant_info.get("email"),
+                "store_name": merchant_info.get("store", {}).get("name"), # Adjust based on actual payload structure
+                "domain": merchant_info.get("store", {}).get("domain"),
+            }
+            user = await user_repo.create_or_update(salla_user_id, user_data)
+            user_id = user.id
+
+    # 5. Create a session ID for the user (auth_session_id)
     import uuid
     auth_session_id = str(uuid.uuid4())
     
-    # 5. Store tokens
-    await store_tokens(auth_session_id, tokens, merchant_info)
+    # 6. Store tokens with user_id
+    await store_tokens(auth_session_id, tokens, merchant_info, user_id=user_id)
     
     return {
         "status": "success", 

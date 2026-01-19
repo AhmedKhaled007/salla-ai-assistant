@@ -10,7 +10,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 
-from ..core import settings, logger
+from ..core import settings, logger, get_token_repository
 from .mcp_client import MCPClient
 
 
@@ -134,7 +134,12 @@ class MCPClientPool:
                 
             # Create new client for this user
             logger.info(f"Creating new MCP client for user {auth_session_id}")
-            new_client = MCPClient(self.transport, self.server_url)
+            # Retrieve user_id from token repository
+            repo = get_token_repository()
+            tokens = await repo.get(auth_session_id)
+            user_id = tokens.get("user_id") if tokens else None
+
+            new_client = MCPClient(self.transport, self.server_url, user_id=user_id)
             
             # Connect with user's token
             success = await new_client.connect_to_server(

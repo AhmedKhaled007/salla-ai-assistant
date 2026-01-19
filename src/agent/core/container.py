@@ -21,6 +21,8 @@ from ..repositories import (
     InMemoryConversationRepository,
     SQLAlchemyTokenRepository,
     SQLAlchemyConversationRepository,
+    SQLAlchemyUserRepository,
+    UserRepository,
 )
 
 
@@ -34,6 +36,7 @@ _token_repo: TokenRepository | None = None
 _state_repo: StateRepository | None = None
 _rate_limit_repo: RateLimitRepository | None = None
 _conversation_repo: ConversationRepository | None = None
+_user_repo: UserRepository | None = None
 
 
 # =============================================================================
@@ -103,3 +106,15 @@ def reset_all_repositories() -> None:
     _state_repo = None
     _rate_limit_repo = None
     _conversation_repo = None
+    _user_repo = None
+
+def get_user_repository() -> UserRepository:
+    """Get the user repository instance.
+    
+    Returns:
+        UserRepository for managing user records.
+    """
+    global _user_repo
+    if _user_repo is None:
+        _user_repo = SQLAlchemyUserRepository()
+    return _user_repo

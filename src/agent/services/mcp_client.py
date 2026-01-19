@@ -25,8 +25,9 @@ from mcp.client.streamable_http import streamablehttp_client
 import litellm
 
 from ..core import settings, logger
-from ..core import get_conversation_repository
 from .prompts import SYSTEM_PROMPT
+from .llm import call_llm
+from .conversation import ConversationService
 
 
 class MCPClient:
@@ -38,12 +39,13 @@ class MCPClient:
     - Executing tools on the MCP server
     """
 
-    def __init__(self, transport: str = "stdio", server_url: Optional[str] = None):
+    def __init__(self, transport: str = "stdio", server_url: Optional[str] = None, user_id: Optional[int] = None):
         """Initialize the MCP client.
         
         Args:
             transport: Transport type - 'stdio' or 'sse'
             server_url: URL for SSE transport (e.g., 'http://localhost:8001/sse')
+            user_id: Optional user ID for conversation persistence
         """
         # Session state
         self.session: Optional[ClientSession] = None
@@ -55,9 +57,10 @@ class MCPClient:
         
         # Salla Access Token (for authentication context)
         self._access_token: Optional[str] = None
+        self.user_id = user_id
         
-        # Repositories
-        self._conversation_repo = get_conversation_repository()
+        # Repositories / Services
+        self.conversation_service = ConversationService()
 
     def is_connected(self) -> bool:
         """Check if the MCP server connection is active."""
@@ -106,28 +109,7 @@ class MCPClient:
             
         return True
 
-    async def create_conversation(self) -> str:
-        """Create a new conversation session and return its ID."""
-        conversation_id = str(uuid.uuid4())
-        # We don't need to persist empty sessions, but we could
-        logger.info(f"Created new conversation: {conversation_id}")
-        return conversation_id
 
-    async def get_conversation(self, conversation_id: str) -> Optional[list]:
-        """Get messages for a conversation. Returns None if conversation doesn't exist."""
-        repo = self._conversation_repo
-        return await repo.get(conversation_id)
-
-    async def delete_conversation(self, conversation_id: str) -> bool:
-        """Delete a conversation. Returns True if conversation existed."""
-        repo = self._conversation_repo
-        # We might also want to delete log files if we were strictly cleaning up
-        return await repo.delete(conversation_id)
-
-    async def list_conversations(self) -> list[str]:
-        """List all active conversation IDs."""
-        repo = self._conversation_repo
-        return await repo.list_conversations()
         
     async def set_access_token(self, access_token: str) -> bool:
         """Update the Salla access token.
@@ -300,9 +282,7 @@ class MCPClient:
         # Load or initialize conversation
         messages = []
         if conversation_id:
-             stored_messages = await self.get_conversation(conversation_id)
-             if stored_messages:
-                 messages = stored_messages
+             messages = await self.conversation_service.get_history(conversation_id)
         
         if not messages:
              # Basic system prompt if no history
@@ -333,7 +313,7 @@ class MCPClient:
         while iteration_count < settings.max_iterations:
             try:
                 # Call LLM
-                response = await self._call_llm(messages, tools=openai_tools)
+                response = await call_llm(messages, tools=openai_tools)
                 message = response.choices[0].message
                 
                 # Check for tool calls
@@ -398,8 +378,7 @@ class MCPClient:
              
         # Save conversation locally (for debugging/logs)
         if conversation_id:
-             repo = self._conversation_repo
-             await repo.store(conversation_id, messages)
+             await self.conversation_service.save_history(conversation_id, messages)
              
              # Also log to file system for debugging
              await self._log_conversation(conversation_id, messages)
@@ -423,11 +402,13 @@ class MCPClient:
         # Load or initialize conversation
         messages = []
         if conversation_id:
-             stored_messages = await self.get_conversation(conversation_id)
-             if stored_messages:
-                 messages = stored_messages
+             messages = await self.conversation_service.get_history(conversation_id)
         else:
-             conversation_id = await self.create_conversation()
+             if not self.user_id:
+                  yield {"type": "error", "message": "Cannot auto-create conversation: User ID not provided"}
+                  return
+             conversation_id = await self.conversation_service.create_conversation(user_id=self.user_id)
+             stored_messages = []
              
         yield {"type": "conversation", "conversation_id": conversation_id}
         
@@ -435,6 +416,21 @@ class MCPClient:
              messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
         messages.append({"role": "user", "content": query})
+
+         # Generate title for new conversations
+        if not stored_messages:
+             try:
+                 title = await self.conversation_service.generate_title(query)
+                 # Update title in background to not block too much, or await?
+                 # User asked to "make request ... before run the mcp client"
+                 # So we await generation, but maybe async save
+                 await self.conversation_service.update_title(conversation_id, title)
+                 logger.info(f"Set conversation {conversation_id} title to: {title}")
+             except Exception as e:
+                 logger.warning(f"Failed to set conversation title: {e}")
+             
+             if title:
+                yield {"type": "title", "title": title}
 
         # Get tools
         available_tools = await self.session.list_tools()
@@ -454,7 +450,7 @@ class MCPClient:
         while iteration_count < settings.max_iterations:
             try:
                 # Call LLM with streaming
-                response = await self._call_llm(messages, tools=openai_tools, stream=True)
+                response = await call_llm(messages, tools=openai_tools, stream=True)
                 
                 current_content = ""
                 tool_calls_buffer = {} # index -> data
@@ -564,48 +560,16 @@ class MCPClient:
                 return
 
         # Save session
-        repo = self._conversation_repo
-        await repo.store(conversation_id, messages)
+        await self.conversation_service.save_history(conversation_id, messages)
         await self._log_conversation(conversation_id, messages)
         
         # Filter out system messages from final messages list
         filtered_messages = [msg for msg in messages if msg.get("role") != "system"]
         yield {"type": "done", "session_id": conversation_id, "messages": filtered_messages}
 
-    async def _call_llm(self, messages: list, tools: list = None, stream: bool = False):
-        """Internal method to call the LLM with exponential backoff retry."""
-        retry_delay = settings.llm_retry_delay
-        
-        for attempt in range(settings.llm_max_retries):
-            try:
-                # Prepare args
-                kwargs = {
-                    "model": settings.llm_model,
-                    "messages": messages,
-                    "temperature": settings.llm_temperature,
-                }
-                
-                if tools:
-                    kwargs["tools"] = tools
-                    kwargs["tool_choice"] = "auto"
-                    
-                if settings.llm_max_tokens:
-                    kwargs["max_tokens"] = settings.llm_max_tokens
-                    
-                if stream:
-                    kwargs["stream"] = True
-                response = await litellm.acompletion(**kwargs)
-                if stream:
-                    return response
-                
-            except Exception as e:
-                if attempt == settings.llm_max_retries - 1:
-                    logger.error(f"LLM call failed after {settings.llm_max_retries} attempts: {e}")
-                    raise
-                
-                logger.warning(f"LLM call failed (attempt {attempt+1}), retrying in {retry_delay}s: {e}")
-                await asyncio.sleep(retry_delay)
-                retry_delay *= 2  # Exponential backoff
+
+
+
 
     async def cleanup(self):
         """Clean up resources."""

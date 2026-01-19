@@ -102,34 +102,41 @@ export function Sidebar({
                                 Conversations
                             </h3>
                             <div className="flex flex-col gap-1">
-                                {conversations.slice(0, 10).map((id) => (
-                                    <div
-                                        key={id}
-                                        className={`group flex items-center justify-between px-4 py-2 rounded-lg cursor-pointer transition-all ${currentConversationId === id
-                                            ? 'bg-accent text-primary'
-                                            : 'text-text-secondary hover:bg-accent/50'
-                                            }`}
-                                        onClick={() => {
-                                            onLoadConversation?.(id);
-                                            onClose?.();
-                                        }}
-                                    >
-                                        <div className="flex items-center gap-3">
-                                            <span>💬</span>
-                                            <span className="text-sm font-mono">{formatConversationId(id)}</span>
-                                        </div>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                onDeleteConversation?.(id);
+                                {conversations.slice(0, 10).map((conv) => {
+                                    const id = typeof conv === 'string' ? conv : conv.id;
+                                    const title = typeof conv === 'string' ? null : conv.title;
+
+                                    return (
+                                        <div
+                                            key={id}
+                                            className={`group flex items-center justify-between px-4 py-2 rounded-lg cursor-pointer transition-all ${currentConversationId === id
+                                                ? 'bg-accent text-primary'
+                                                : 'text-text-secondary hover:bg-accent/50'
+                                                }`}
+                                            onClick={() => {
+                                                onLoadConversation?.(id);
+                                                onClose?.();
                                             }}
-                                            className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-error transition-all"
-                                            title="Delete conversation"
                                         >
-                                            ✕
-                                        </button>
-                                    </div>
-                                ))}
+                                            <div className="flex items-center gap-3 overflow-hidden">
+                                                <span>💬</span>
+                                                <span className="text-sm font-medium truncate">
+                                                    {title || formatConversationId(id)}
+                                                </span>
+                                            </div>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onDeleteConversation?.(id);
+                                                }}
+                                                className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-error transition-all"
+                                                title="Delete conversation"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </div>
                     )}

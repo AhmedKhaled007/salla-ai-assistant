@@ -165,7 +165,10 @@ async def get_merchant_info(access_token: str) -> Dict[str, Any]:
 
 
 async def store_tokens(
-    session_id: str, tokens: Dict[str, Any], merchant_info: Optional[Dict[str, Any]] = None
+    session_id: str, 
+    tokens: Dict[str, Any], 
+    merchant_info: Optional[Dict[str, Any]] = None,
+    user_id: Optional[int] = None
 ) -> None:
     """Store tokens for a session.
     
@@ -173,6 +176,7 @@ async def store_tokens(
         session_id: Session identifier
         tokens: Token response from Salla (access_token, refresh_token, etc.)
         merchant_info: Optional merchant info to cache
+        user_id: Optional user ID to link session to user
     """
     repo = _token_repo
     
@@ -190,7 +194,12 @@ async def store_tokens(
     if merchant_info:
         token_data["merchant_info"] = merchant_info
         
-    await repo.store(session_id, token_data, ttl_seconds=expires_in + 86400)  # Keep for 24h past expiry
+    await repo.store(
+        session_id, 
+        token_data, 
+        ttl_seconds=expires_in + 86400,
+        user_id=user_id
+    )  # Keep for 24h past expiry
 
 
 async def get_tokens(session_id: str) -> Optional[Dict[str, Any]]:

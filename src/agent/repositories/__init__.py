@@ -8,6 +8,7 @@ from .token import TokenRepository, InMemoryTokenRepository, SQLAlchemyTokenRepo
 from .state import StateRepository, InMemoryStateRepository
 from .rate_limit import RateLimitRepository, InMemoryRateLimitRepository
 from .conversation import ConversationRepository, InMemoryConversationRepository, SQLAlchemyConversationRepository
+from .user import UserRepository, SQLAlchemyUserRepository
 
 __all__ = [
     # Abstract base classes
@@ -15,6 +16,7 @@ __all__ = [
     "StateRepository",
     "RateLimitRepository",
     "ConversationRepository",
+    "UserRepository",
     # In-memory implementations
     "InMemoryTokenRepository",
     "InMemoryStateRepository",
@@ -23,4 +25,5 @@ __all__ = [
     # SQLAlchemy implementations
     "SQLAlchemyTokenRepository",
     "SQLAlchemyConversationRepository",
+    "SQLAlchemyUserRepository",
 ]

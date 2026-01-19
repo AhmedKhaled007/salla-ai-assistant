@@ -11,3 +11,4 @@ wheels/
 .env
 conversations
 .vscode
+salla_agent.db

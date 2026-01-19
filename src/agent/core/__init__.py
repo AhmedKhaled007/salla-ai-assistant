@@ -11,6 +11,7 @@ from .container import (
     get_state_repository,
     get_rate_limit_repository,
     get_conversation_repository,
+    get_user_repository,
     reset_all_repositories,
 )
 
@@ -23,5 +24,6 @@ __all__ = [
     "get_state_repository",
     "get_rate_limit_repository",
     "get_conversation_repository",
+    "get_user_repository",
     "reset_all_repositories",
 ]

@@ -99,6 +99,9 @@ export async function sendQueryStream(query, conversationId = null, authSessionI
                         case 'conversation':
                             callbacks.onConversation?.(event.conversation_id);
                             break;
+                        case 'title':
+                            callbacks.onTitle?.(event.title);
+                            break;
                         case 'tool_call':
                             callbacks.onToolCall?.({
                                 toolName: event.tool_name,

@@ -16,9 +16,12 @@ from ..core.models import Conversation, Message
 class ConversationRepository(ABC):
     """Repository for conversation sessions (optional persistence)."""
 
-    @abstractmethod
     async def store(self, conversation_id: str, messages: list) -> None:
         """Store conversation messages."""
+
+    @abstractmethod
+    async def create(self, conversation_id: str, user_id: int, title: Optional[str] = None) -> None:
+        """Create a new conversation with user_id and optional title."""
 
     @abstractmethod
     async def get(self, conversation_id: str) -> Optional[list]:
@@ -29,8 +32,12 @@ class ConversationRepository(ABC):
         """Delete conversation. Returns True if existed."""
 
     @abstractmethod
-    async def list_conversations(self) -> list[str]:
-        """List all conversation IDs."""
+    async def list_conversations(self) -> list[dict]:
+        """List all conversations with IDs and titles."""
+
+    @abstractmethod
+    async def update_title(self, conversation_id: str, title: str) -> None:
+        """Update conversation title."""
 
 
 # =============================================================================
@@ -49,6 +56,13 @@ class InMemoryConversationRepository(ConversationRepository):
         async with self._lock:
             self._store[conversation_id] = messages
 
+    async def create(self, conversation_id: str, user_id: int, title: Optional[str] = None) -> None:
+        async with self._lock:
+            if conversation_id not in self._store:
+                self._store[conversation_id] = []
+                # Record user_id mapping separately if we were fully implementing in-memory structure
+                # For now just complying with interface
+
     async def get(self, conversation_id: str) -> Optional[list]:
         async with self._lock:
             return self._store.get(conversation_id)
@@ -60,9 +74,14 @@ class InMemoryConversationRepository(ConversationRepository):
                 return True
             return False
 
-    async def list_conversations(self) -> list[str]:
+    async def list_conversations(self) -> list[dict]:
         async with self._lock:
-            return list(self._store.keys())
+            # In-memory just returns IDs for now as we don't store titles
+            return [{"id": id, "title": None} for id in self._store.keys()]
+
+    async def update_title(self, conversation_id: str, title: str) -> None:
+        # In-memory doesn't store titles currently, but we can ignore or add a metadata store
+        pass
 
 
 class SQLAlchemyConversationRepository(ConversationRepository):
@@ -108,6 +127,15 @@ class SQLAlchemyConversationRepository(ConversationRepository):
                 session.add(message)
             
             await session.commit()
+
+    async def create(self, conversation_id: str, user_id: int, title: Optional[str] = None) -> None:
+        async for session in get_db():
+            stmt = select(Conversation).where(Conversation.id == conversation_id)
+            result = await session.execute(stmt)
+            if not result.scalar_one_or_none():
+                conversation = Conversation(id=conversation_id, user_id=user_id, title=title)
+                session.add(conversation)
+                await session.commit()
 
     async def get(self, conversation_id: str) -> Optional[list]:
         async for session in get_db():
@@ -156,8 +184,20 @@ class SQLAlchemyConversationRepository(ConversationRepository):
                 return True
             return False
 
-    async def list_conversations(self) -> list[str]:
+    async def list_conversations(self) -> list[dict]:
         async for session in get_db():
-            stmt = select(Conversation.id)
+            stmt = select(Conversation).order_by(Conversation.updated_at.desc())
             result = await session.execute(stmt)
-            return list(result.scalars().all())
+            conversations = result.scalars().all()
+            return [{"id": c.id, "title": c.title} for c in conversations]
+
+    async def update_title(self, conversation_id: str, title: str) -> None:
+        async for session in get_db():
+            stmt = select(Conversation).where(Conversation.id == conversation_id)
+            result = await session.execute(stmt)
+            conversation = result.scalar_one_or_none()
+            
+            if conversation:
+                conversation.title = title
+                await session.commit()
+

@@ -24,12 +24,12 @@ class Conversation(Base):
     __tablename__ = "conversations"
     
     id: Mapped[str] = mapped_column(String, primary_key=True) # session_id (uuid)
-    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
-    title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False, default="New Conversation")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
-    user: Mapped[Optional["User"]] = relationship(back_populates="conversations")
+    user: Mapped["User"] = relationship(back_populates="conversations")
     messages: Mapped[List["Message"]] = relationship(back_populates="conversation", cascade="all, delete-orphan")
 
 class Message(Base):

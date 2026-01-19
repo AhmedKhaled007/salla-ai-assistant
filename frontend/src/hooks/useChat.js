@@ -10,6 +10,7 @@ export function useChat(authSessionId = null) {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
     const [conversationId, setConversationId] = useState(null);
+    const [title, setTitle] = useState(null);
     const [currentToolCall, setCurrentToolCall] = useState(null);
     const abortControllerRef = useRef(null);
 
@@ -37,6 +38,9 @@ export function useChat(authSessionId = null) {
             await sendQueryStream(query, conversationId, authSessionId, {
                 onConversation: (newConversationId) => {
                     setConversationId(newConversationId);
+                },
+                onTitle: (newTitle) => {
+                    setTitle(newTitle);
                 },
                 onToolCall: ({ toolName, toolArgs }) => {
                     const toolCall = { name: toolName, args: toolArgs, status: 'running' };
@@ -141,6 +145,7 @@ export function useChat(authSessionId = null) {
         setMessages([]);
         setError(null);
         setConversationId(null);
+        setTitle(null);
         setCurrentToolCall(null);
     }, []);
 
@@ -149,6 +154,7 @@ export function useChat(authSessionId = null) {
         isLoading,
         error,
         conversationId,
+        title,
         currentToolCall,
         sendMessage,
         clearMessages,

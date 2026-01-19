@@ -17,14 +17,15 @@ class TokenRepository(ABC):
 
     @abstractmethod
     async def store(
-        self, session_id: str, tokens: dict, ttl_seconds: int = 3600
+        self, session_id: str, tokens: dict, ttl_seconds: int = 3600, user_id: int | None = None
     ) -> None:
         """Store tokens with optional TTL.
         
         Args:
             session_id: Unique session identifier
-            tokens: Dict containing access_token, refresh_token, expires_at, merchant_info
+            tokens: Dict containing access_token, refresh_token, expires_at, merchant_info, user_id
             ttl_seconds: Time-to-live in seconds (default 1 hour)
+            user_id: Optional user ID to link session to user
         """
 
     @abstractmethod
@@ -65,11 +66,12 @@ class InMemoryTokenRepository(TokenRepository):
         self._lock = asyncio.Lock()
 
     async def store(
-        self, session_id: str, tokens: dict, ttl_seconds: int = 3600
+        self, session_id: str, tokens: dict, ttl_seconds: int = 3600, user_id: int | None = None
     ) -> None:
         async with self._lock:
             self._store[session_id] = {
                 **tokens,
+                "user_id": user_id,
                 "_expires_at": datetime.now() + timedelta(seconds=ttl_seconds),
             }
 
@@ -102,7 +104,7 @@ class SQLAlchemyTokenRepository(TokenRepository):
     """SQLAlchemy-based token storage."""
 
     async def store(
-        self, session_id: str, tokens: dict, ttl_seconds: int = 3600
+        self, session_id: str, tokens: dict, ttl_seconds: int = 3600, user_id: int | None = None
     ) -> None:
         async for session in get_db():
             expires_at = datetime.now() + timedelta(seconds=ttl_seconds)
@@ -119,6 +121,8 @@ class SQLAlchemyTokenRepository(TokenRepository):
                 auth_session.expires_at = expires_at
                 auth_session.scope = tokens.get("scope")
                 auth_session.merchant_info = tokens.get("merchant_info")
+                if user_id:
+                    auth_session.user_id = user_id
             else:
                 # Insert
                 auth_session = AuthSession(
@@ -127,7 +131,8 @@ class SQLAlchemyTokenRepository(TokenRepository):
                     refresh_token=tokens.get("refresh_token"),
                     expires_at=expires_at,
                     scope=tokens.get("scope"),
-                    merchant_info=tokens.get("merchant_info")
+                    merchant_info=tokens.get("merchant_info"),
+                    user_id=user_id
                 )
                 session.add(auth_session)
                 
@@ -172,6 +177,7 @@ class SQLAlchemyTokenRepository(TokenRepository):
                 "expires_at": auth_session.expires_at.isoformat(),
                 "scope": auth_session.scope,
                 "merchant_info": auth_session.merchant_info,
+                "user_id": auth_session.user_id,
             }
 
     async def delete(self, session_id: str) -> bool:

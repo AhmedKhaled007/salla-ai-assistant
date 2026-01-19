@@ -35,7 +35,7 @@ function ProtectedRoute({ children }) {
 // Main chat application content
 function ChatApp() {
   const { logout, merchantInfo, authSessionId } = useAuth();
-  const { messages, isLoading, conversationId, sendMessage, clearMessages, setMessages, setConversationId } = useChat(authSessionId);
+  const { messages, isLoading, conversationId, title, sendMessage, clearMessages, setMessages, setConversationId } = useChat(authSessionId);
   const [conversations, setConversations] = useState([]);
   const [healthStatus, setHealthStatus] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -80,17 +80,34 @@ function ChatApp() {
     fetchHealth();
   }, [showError, showWarning, authSessionId]);
 
-  // Refresh conversations when current conversation changes
+  // Refresh conversations when current conversation or title changes
   useEffect(() => {
     if (conversationId) {
       setConversations(prev => {
-        if (!prev.includes(conversationId)) {
-          return [conversationId, ...prev];
+        // Handle if prev is array of strings (legacy) or objects
+        const existingIndex = prev.findIndex(c => (typeof c === 'string' ? c : c.id) === conversationId);
+
+        if (existingIndex !== -1) {
+          // Update existing if title changed
+          if (title && typeof prev[existingIndex] === 'object' && prev[existingIndex].title !== title) {
+            const newConv = [...prev];
+            newConv[existingIndex] = { ...newConv[existingIndex], title };
+            return newConv;
+          }
+          // If it was a string and we have a title, convert to object
+          if (title && typeof prev[existingIndex] === 'string') {
+            const newConv = [...prev];
+            newConv[existingIndex] = { id: conversationId, title };
+            return newConv;
+          }
+          return prev;
+        } else {
+          // Add new
+          return [{ id: conversationId, title: title || 'New Conversation' }, ...prev];
         }
-        return prev;
       });
     }
-  }, [conversationId]);
+  }, [conversationId, title]);
 
   // Load a previous conversation
   const handleLoadConversation = useCallback(async (id) => {
@@ -143,7 +160,7 @@ function ChatApp() {
   const handleDeleteConversation = useCallback(async (id) => {
     try {
       await deleteConversation(id, authSessionId);
-      setConversations(prev => prev.filter(s => s !== id));
+      setConversations(prev => prev.filter(c => (typeof c === 'string' ? c : c.id) !== id));
       if (conversationId === id) {
         clearMessages();
       }
