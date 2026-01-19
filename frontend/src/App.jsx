@@ -53,7 +53,7 @@ function ChatApp() {
   useEffect(() => {
     const fetchSessions = async () => {
       try {
-        const data = await getSessions();
+        const data = await getSessions(authSessionId);
         setSessions(data.sessions || []);
       } catch (err) {
         // Silent fail for session fetch - not critical
@@ -74,9 +74,11 @@ function ChatApp() {
       }
     };
 
-    fetchSessions();
+    if (authSessionId) {
+      fetchSessions();
+    }
     fetchHealth();
-  }, [showError, showWarning]);
+  }, [showError, showWarning, authSessionId]);
 
   // Refresh sessions when current session changes
   useEffect(() => {
@@ -93,7 +95,7 @@ function ChatApp() {
   // Load a previous session
   const handleLoadSession = useCallback(async (id) => {
     try {
-      const data = await getSession(id);
+      const data = await getSession(id, authSessionId);
       if (data) {
         setSessionId(id);
         // Convert messages to frontend format
@@ -135,12 +137,12 @@ function ChatApp() {
     } catch (err) {
       showError('Failed to load conversation');
     }
-  }, [setMessages, setSessionId, showError]);
+  }, [setMessages, setSessionId, showError, authSessionId]);
 
   // Delete a session
   const handleDeleteSession = useCallback(async (id) => {
     try {
-      await deleteSession(id);
+      await deleteSession(id, authSessionId);
       setSessions(prev => prev.filter(s => s !== id));
       if (sessionId === id) {
         clearMessages();
@@ -149,7 +151,7 @@ function ChatApp() {
     } catch (err) {
       showError('Failed to delete conversation');
     }
-  }, [sessionId, clearMessages, showError, showSuccess]);
+  }, [sessionId, clearMessages, showError, showSuccess, authSessionId]);
 
   // Quick action handlers
   const handleQuickAction = useCallback((query) => {

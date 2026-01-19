@@ -338,7 +338,6 @@ class MCPClient:
                 
                 # Check for tool calls
                 if hasattr(message, 'tool_calls') and message.tool_calls:
-                    # Add assistant message with tool calls to history
                     messages.append(message.model_dump())
                     
                     # Execute each tool call
@@ -405,7 +404,8 @@ class MCPClient:
              # Also log to file system for debugging
              await self._log_conversation(session_id, messages)
 
-        return messages
+        # Filter out system messages before returning to client
+        return [msg for msg in messages if msg.get("role") != "system"]
 
     async def process_query_stream(self, query: str, session_id: str | None = None):
         """Process a query with streaming, yielding events for each step.
@@ -423,11 +423,13 @@ class MCPClient:
         # Load or initialize conversation
         messages = []
         if session_id:
-             stored_messages = await self.get_session(session_id)
-             if stored_messages:
-                 messages = stored_messages
+            logger.info(f"Loading session {session_id}")
+            stored_messages = await self.get_session(session_id)
+            if stored_messages:
+                logger.info(f"Found session message {stored_messages}")
+                messages = stored_messages
         else:
-             session_id = await self.create_session()
+            session_id = await self.create_session()
              
         yield {"type": "session", "session_id": session_id}
         
@@ -453,36 +455,75 @@ class MCPClient:
         
         while iteration_count < settings.max_iterations:
             try:
-                # Call LLM with streaming using LiteLLM
-                # Note: LiteLLM streaming with tools is complex, for now we simplistic approach
-                # A better approach typically involves manual handling of delta chunks
+                # Call LLM with streaming
+                response = await self._call_llm(messages, tools=openai_tools, stream=True)
                 
-                # Simplified streaming logic:
-                # 1. We'll use full generation for current step to keep logic robust for now
-                # 2. Or we can use litellm's stream=True
+                current_content = ""
+                tool_calls_buffer = {} # index -> data
                 
-                response = await self._call_llm(messages, tools=openai_tools, stream=False) 
-                message = response.choices[0].message
-                
-                if hasattr(message, 'tool_calls') and message.tool_calls:
-                    messages.append(message.model_dump())
+                async for chunk in response:
+                    if not chunk.choices:
+                        continue
+                        
+                    delta = chunk.choices[0].delta
                     
-                    for tool_call in message.tool_calls:
-                        tool_name = tool_call.function.name
-                        tool_args_str = tool_call.function.arguments
-                        tool_args = json.loads(tool_args_str)
+                    if delta.content:
+                        content_chunk = delta.content
+                        current_content += content_chunk
+                        yield {"type": "response_chunk", "chunk": content_chunk}
                         
-                        yield {
-                            "type": "tool_call", 
-                            "tool_name": tool_name, 
-                            "tool_args": tool_args
-                        }
+                    if delta.tool_calls:
+                        for tc_chunk in delta.tool_calls:
+                            idx = tc_chunk.index
+                            if idx not in tool_calls_buffer:
+                                tool_calls_buffer[idx] = {
+                                    "id": "",
+                                    "type": "function",
+                                    "function": {"name": "", "arguments": ""}
+                                }
+                            
+                            if tc_chunk.id:
+                                tool_calls_buffer[idx]["id"] += tc_chunk.id
+                            if tc_chunk.function:
+                                if tc_chunk.function.name:
+                                    tool_calls_buffer[idx]["function"]["name"] += tc_chunk.function.name
+                                if tc_chunk.function.arguments:
+                                    tool_calls_buffer[idx]["function"]["arguments"] += tc_chunk.function.arguments
+
+                # Reconstruct full list of tool calls
+                tool_calls = []
+                for idx in sorted(tool_calls_buffer.keys()):
+                    tool_calls.append(tool_calls_buffer[idx])
+
+                # Create assistant message
+                assistant_msg = {
+                    "role": "assistant",
+                    "content": current_content or None
+                }
+                if tool_calls:
+                    assistant_msg["tool_calls"] = tool_calls
+                
+                messages.append(assistant_msg)
+                
+                if tool_calls:
+                    for tool_call in tool_calls:
+                        tool_name = tool_call["function"]["name"]
+                        tool_args_str = tool_call["function"]["arguments"]
+                        tool_call_id = tool_call["id"]
                         
-                        # Execute
                         try:
+                            tool_args = json.loads(tool_args_str)
+                            
+                            yield {
+                                "type": "tool_call", 
+                                "tool_name": tool_name, 
+                                "tool_args": tool_args
+                            }
+                            
+                            # Execute on MCP server
                             result = await self.session.call_tool(tool_name, tool_args)
                             
-                            # Format result
+                            # Format result text
                             tool_output = ""
                             if hasattr(result, 'content') and result.content:
                                  tool_output = "\n".join([c.text for c in result.content if c.type == 'text'])
@@ -498,27 +539,26 @@ class MCPClient:
                             messages.append({
                                 "role": "tool",
                                 "name": tool_name,
-                                "tool_call_id": tool_call.id,
+                                "tool_call_id": tool_call_id,
                                 "content": tool_output
                             })
                             
                         except Exception as e:
-                             error_msg = f"Error: {e}"
-                             yield {"type": "error", "message": error_msg}
-                             messages.append({
+                            error_msg = f"Error executing tool {tool_name}: {str(e)}"
+                            logger.error(error_msg)
+                            yield {"type": "error", "message": error_msg}
+                            messages.append({
                                 "role": "tool",
                                 "name": tool_name,
-                                "tool_call_id": tool_call.id,
+                                "tool_call_id": tool_call_id,
                                 "content": error_msg
                             })
-                    
+                            
                     iteration_count += 1
                     
                 else:
-                    # Text response
-                    content = message.content
-                    yield {"type": "response", "content": content}
-                    messages.append({"role": "assistant", "content": content})
+                    # Final text response done
+                    yield {"type": "response", "content": current_content}
                     break
                     
             except Exception as e:
@@ -530,7 +570,9 @@ class MCPClient:
         await repo.store(session_id, messages)
         await self._log_conversation(session_id, messages)
         
-        yield {"type": "done", "session_id": session_id}
+        # Filter out system messages from final messages list
+        filtered_messages = [msg for msg in messages if msg.get("role") != "system"]
+        yield {"type": "done", "session_id": session_id, "messages": filtered_messages}
 
     async def _call_llm(self, messages: list, tools: list = None, stream: bool = False):
         """Internal method to call the LLM with exponential backoff retry."""
@@ -552,8 +594,11 @@ class MCPClient:
                 if settings.llm_max_tokens:
                     kwargs["max_tokens"] = settings.llm_max_tokens
                     
+                if stream:
+                    kwargs["stream"] = True
                 response = await litellm.acompletion(**kwargs)
-                return response
+                if stream:
+                    return response
                 
             except Exception as e:
                 if attempt == settings.llm_max_retries - 1:
@@ -598,3 +643,4 @@ class MCPClient:
                 
         except Exception as e:
             logger.warning(f"Failed to log conversation: {e}")
+

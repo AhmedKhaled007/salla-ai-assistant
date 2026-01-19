@@ -111,6 +111,9 @@ export async function sendQueryStream(query, sessionId = null, authSessionId = n
                                 result: event.result,
                             });
                             break;
+                        case 'response_chunk':
+                            callbacks.onResponseChunk?.(event.chunk);
+                            break;
                         case 'response':
                             callbacks.onResponse?.(event.content);
                             break;
@@ -131,10 +134,16 @@ export async function sendQueryStream(query, sessionId = null, authSessionId = n
 
 /**
  * Get available tools from the agent
+ * @param {string|null} authSessionId - Optional OAuth session ID for authentication
  * @returns {Promise<{tools: Array}>} - List of available tools
  */
-export async function getTools() {
-    const response = await fetch(`${API_BASE_URL}/tools`);
+export async function getTools(authSessionId = null) {
+    const headers = {};
+    if (authSessionId) {
+        headers['X-Auth-Session-Id'] = authSessionId;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/tools`, { headers });
 
     if (!response.ok) {
         throw new Error('Failed to fetch tools');
@@ -161,11 +170,18 @@ export async function checkHealth() {
 
 /**
  * Create a new conversation session
+ * @param {string|null} authSessionId - Optional OAuth session ID for authentication
  * @returns {Promise<{session_id: string}>}
  */
-export async function createSession() {
+export async function createSession(authSessionId = null) {
+    const headers = {};
+    if (authSessionId) {
+        headers['X-Auth-Session-Id'] = authSessionId;
+    }
+
     const response = await fetch(`${API_BASE_URL}/api/sessions`, {
         method: 'POST',
+        headers,
     });
 
     if (!response.ok) {
@@ -177,10 +193,16 @@ export async function createSession() {
 
 /**
  * Get all active sessions
+ * @param {string|null} authSessionId - Optional OAuth session ID for authentication
  * @returns {Promise<{sessions: string[]}>}
  */
-export async function getSessions() {
-    const response = await fetch(`${API_BASE_URL}/api/sessions`);
+export async function getSessions(authSessionId = null) {
+    const headers = {};
+    if (authSessionId) {
+        headers['X-Auth-Session-Id'] = authSessionId;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/sessions`, { headers });
 
     if (!response.ok) {
         throw new Error('Failed to fetch sessions');
@@ -192,10 +214,16 @@ export async function getSessions() {
 /**
  * Get messages for a specific session
  * @param {string} sessionId - The session ID
+ * @param {string|null} authSessionId - Optional OAuth session ID for authentication
  * @returns {Promise<{session_id: string, messages: Array}>}
  */
-export async function getSession(sessionId) {
-    const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`);
+export async function getSession(sessionId, authSessionId = null) {
+    const headers = {};
+    if (authSessionId) {
+        headers['X-Auth-Session-Id'] = authSessionId;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`, { headers });
 
     if (!response.ok) {
         if (response.status === 404) {
@@ -210,11 +238,18 @@ export async function getSession(sessionId) {
 /**
  * Delete a conversation session
  * @param {string} sessionId - The session ID to delete
+ * @param {string|null} authSessionId - Optional OAuth session ID for authentication
  * @returns {Promise<{message: string}>}
  */
-export async function deleteSession(sessionId) {
+export async function deleteSession(sessionId, authSessionId = null) {
+    const headers = {};
+    if (authSessionId) {
+        headers['X-Auth-Session-Id'] = authSessionId;
+    }
+
     const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`, {
         method: 'DELETE',
+        headers,
     });
 
     if (!response.ok) {

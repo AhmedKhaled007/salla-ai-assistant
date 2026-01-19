@@ -21,6 +21,8 @@ router = APIRouter()
 async def get_auth_session_id(
     x_auth_session_id: str | None = Header(default=None, alias="X-Auth-Session-Id")
 ) -> str | None:
+    if not x_auth_session_id:
+        raise HTTPException(status_code=401, detail="Missing X-Auth-Session-Id header")
     return x_auth_session_id
 
 

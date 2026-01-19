@@ -29,14 +29,15 @@ async def extract_token_from_context(ctx: Context) -> None:
     This function extracts it and sets it in the context variable for salla_client.
     """
     try:
-        request = ctx.get_http_request()
+        request = ctx.request_context.request
         if request:
             auth_header = request.headers.get("Authorization", "")
             if auth_header.startswith("Bearer "):
                 token = auth_header[7:]  # Remove "Bearer " prefix
                 set_access_token(token)
-    except Exception:
+    except Exception as e:
         # If not in HTTP context (stdio transport), ignore
+        print(f"Not in HTTP context: {e}")
         pass
 
 

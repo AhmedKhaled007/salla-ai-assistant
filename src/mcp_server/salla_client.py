@@ -51,7 +51,7 @@ class SallaClient:
         context_token = get_access_token()
         if context_token:
             return context_token
-        return settings.salla_access_token
+        raise ValueError("No access token found")
     
     @property
     def headers(self) -> dict:

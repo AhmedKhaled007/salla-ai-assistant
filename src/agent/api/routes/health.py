@@ -1,9 +1,10 @@
 """Health and tools endpoints."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from typing import Dict, Any
 
-from ...services import MCPClientPool
+from ...services import MCPClientPool, get_valid_access_token
+from .auth import get_auth_session_id
 
 router = APIRouter()
 
@@ -39,17 +40,15 @@ async def health_check(request: Request) -> Dict[str, Any]:
 
 
 @router.get("/tools")
-async def get_tools(request: Request) -> Dict[str, Any]:
+async def get_tools(
+    request: Request,
+    auth_session_id: str = Depends(get_auth_session_id)
+) -> Dict[str, Any]:
     """Get the list of available tools."""
     pool = get_pool(request)
-    # Use default client for tools listing
-    # This might require a valid token if tools are protected?
-    # For listing available tools, we can usually use unauthenticated client 
-    # OR we need to use the user's client if they are authenticated.
-    
-    # Simple logic: try to get a client (unauth) and list tools
     try:
-        client = await pool.get_client(None, None)
+        access_token = await get_valid_access_token(auth_session_id)
+        client = await pool.get_client(auth_session_id, access_token)
         tools = await client.get_mcp_tools()
         return {"tools": [t.name for t in tools]}
     except Exception as e:

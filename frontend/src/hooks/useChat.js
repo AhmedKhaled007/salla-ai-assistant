@@ -67,14 +67,46 @@ export function useChat(authSessionId = null) {
                         timestamp: new Date().toISOString(),
                     }]);
                 },
+                onResponseChunk: (chunk) => {
+                    setMessages(prev => {
+                        const existingMsgIndex = prev.findIndex(m => m.id === assistantMessageId);
+                        if (existingMsgIndex !== -1) {
+                            const newMessages = [...prev];
+                            newMessages[existingMsgIndex] = {
+                                ...newMessages[existingMsgIndex],
+                                content: (newMessages[existingMsgIndex].content || '') + chunk
+                            };
+                            return newMessages;
+                        } else {
+                            return [...prev, {
+                                id: assistantMessageId,
+                                role: 'assistant',
+                                content: chunk,
+                                timestamp: new Date().toISOString(),
+                            }];
+                        }
+                    });
+                },
                 onResponse: (content) => {
-                    // Add final assistant response
-                    setMessages(prev => [...prev, {
-                        id: assistantMessageId,
-                        role: 'assistant',
-                        content,
-                        timestamp: new Date().toISOString(),
-                    }]);
+                    // Final update to ensure consistency
+                    setMessages(prev => {
+                        const existingMsgIndex = prev.findIndex(m => m.id === assistantMessageId);
+                        if (existingMsgIndex !== -1) {
+                            const newMessages = [...prev];
+                            newMessages[existingMsgIndex] = {
+                                ...newMessages[existingMsgIndex],
+                                content: content
+                            };
+                            return newMessages;
+                        } else {
+                            return [...prev, {
+                                id: assistantMessageId,
+                                role: 'assistant',
+                                content,
+                                timestamp: new Date().toISOString(),
+                            }];
+                        }
+                    });
                 },
                 onError: (message) => {
                     setError(message);

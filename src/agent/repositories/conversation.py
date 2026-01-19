@@ -6,6 +6,7 @@ Contains the abstract ConversationRepository interface and implementations.
 from abc import ABC, abstractmethod
 from typing import Optional
 import asyncio
+import json
 from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
 from ..core.database import get_db
@@ -85,11 +86,23 @@ class SQLAlchemyConversationRepository(ConversationRepository):
             
             # Insert new messages
             for msg in messages:
-                # msg is a dict with 'role', 'content'
+                # msg is a dict with 'role', 'content', and potentially 'tool_calls', etc.
+                role = msg.get("role")
+                content = msg.get("content")
+                
+                # Check for tool result messages (need to preserve tool_call_id/name)
+                # or assistant messages with tool_calls (content is None/empty)
+                if role == "tool" or not content:
+                    # Serialize the entire message to preserve keys
+                    content = json.dumps(msg, ensure_ascii=False)
+                elif not isinstance(content, str):
+                    # If content is a complex object, serialize it
+                    content = json.dumps(content, ensure_ascii=False)
+                    
                 message = Message(
                     conversation_id=session_id,
                     role=msg.get("role"),
-                    content=msg.get("content")
+                    content=content
                     # created_at automatically handled
                 )
                 session.add(message)
@@ -108,17 +121,25 @@ class SQLAlchemyConversationRepository(ConversationRepository):
             if not conversation:
                 return None
                 
-            # Convert to list of dicts, sorted by created_at (implicitly by ID/insertion order usually)
-            # We should ensure order. Database usually returns in insertion order for ID, but explicit sort is better.
-            # But here we rely on relationship order.
-            
+            # Convert to list of dicts, sorted by created_at
             messages = []
             sorted_messages = sorted(conversation.messages, key=lambda m: m.created_at)
             
             for msg in sorted_messages:
+                content = msg.content
+                # Try to parse JSON content (for tool call messages that were serialized)
+                try:
+                    parsed = json.loads(content)
+                    if isinstance(parsed, dict) and "role" in parsed:
+                        # This was a serialized message (e.g., tool call), use it directly
+                        messages.append(parsed)
+                        continue
+                except (json.JSONDecodeError, TypeError):
+                    pass
+                    
                 messages.append({
                     "role": msg.role,
-                    "content": msg.content
+                    "content": content
                 })
             
             return messages

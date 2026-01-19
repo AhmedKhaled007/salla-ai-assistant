@@ -47,7 +47,7 @@ async def process_query(
 async def process_query_stream(
     request: QueryRequest,
     req: Request,
-    auth_session_id: str | None = Depends(get_auth_session_id)
+    auth_session_id: str = Depends(get_auth_session_id)
 ):
     """Process a query with Server-Sent Events streaming.
     
@@ -56,9 +56,7 @@ async def process_query_stream(
     """
     pool = get_pool(req)
     
-    access_token = None
-    if auth_session_id:
-        access_token = await get_valid_access_token(auth_session_id)
+    access_token = await get_valid_access_token(auth_session_id)
 
     try:
         client = await pool.get_client(auth_session_id, access_token)
@@ -77,3 +75,4 @@ async def process_query_stream(
         event_generator(),
         media_type="text/event-stream"
     )
+ 

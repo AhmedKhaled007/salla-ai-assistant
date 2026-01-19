@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # LLM Configuration
     llm_model: str = "gemini/gemini-3-flash-preview"
     llm_temperature: float = 1
-    llm_max_retries: int = 3  # Max retry attempts for LLM calls
+    llm_max_retries: int = 1  # Max retry attempts for LLM calls
     llm_retry_delay: float = 1.0  # Base delay in seconds (exponential backoff)
 
     # MCP Server Configuration

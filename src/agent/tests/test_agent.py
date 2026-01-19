@@ -248,8 +248,19 @@ async def async_client(mock_client_pool):
     mock_pool, mock_client = mock_client_pool
     app.state.pool = mock_pool
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client, mock_pool, mock_client
+    
+    # Mock get_valid_access_token in all routes provided it's used there
+    with patch("src.agent.api.routes.session.get_valid_access_token", new_callable=AsyncMock) as m1, \
+         patch("src.agent.api.routes.query.get_valid_access_token", new_callable=AsyncMock) as m2, \
+         patch("src.agent.api.routes.health.get_valid_access_token", new_callable=AsyncMock) as m3:
+        
+        m1.return_value = "test-token"
+        m2.return_value = "test-token"
+        m3.return_value = "test-token"
+        
+        headers = {"X-Auth-Session-Id": "test-session-id"}
+        async with AsyncClient(transport=transport, base_url="http://test", headers=headers) as client:
+            yield client, mock_pool, mock_client
 
 
 @pytest.mark.asyncio
