@@ -424,21 +424,26 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Salla MCP Server")
     parser.add_argument(
         "--transport", 
-        choices=["stdio", "sse"], 
+        choices=["stdio", "http"], 
         default="stdio",
-        help="Transport to use (stdio for dev, sse for production)"
+        help="Transport to use (stdio for dev, http for production)"
+    )
+    parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="Host for HTTP transport (default: 0.0.0.0)"
     )
     parser.add_argument(
         "--port",
         type=int,
         default=8001,
-        help="Port for SSE transport (default: 8001)"
+        help="Port for HTTP transport (default: 8001)"
     )
     args = parser.parse_args()
     
-    if args.transport == "sse":
-        # Run with SSE transport for HTTP-based communication
-        mcp.run(transport="sse", sse_port=args.port)
+    if args.transport == "http":
+        # Run with Streamable HTTP transport (recommended for production)
+        mcp.run(transport="streamable-http", host=args.host, port=args.port)
     else:
         # Run with stdio for local development
         mcp.run()

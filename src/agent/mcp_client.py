@@ -11,7 +11,7 @@ import aiofiles
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 import litellm
 
 from .utils import settings, logger
@@ -177,8 +177,8 @@ class MCPClient:
         try:
             self._current_access_token = access_token
             
-            if self._transport == "sse":
-                return await self._connect_sse()
+            if self._transport == "http":
+                return await self._connect_http()
             else:
                 return await self._connect_stdio(server_script_path, access_token)
                 
@@ -187,28 +187,28 @@ class MCPClient:
             traceback.print_exc()
             raise
 
-    async def _connect_sse(self) -> bool:
-        """Connect to MCP server via SSE transport."""
+    async def _connect_http(self) -> bool:
+        """Connect to MCP server via Streamable HTTP transport."""
         if not self._server_url:
-            raise ValueError("SSE transport requires server_url")
+            raise ValueError("HTTP transport requires server_url")
         
-        logger.info(f"Connecting to MCP server via SSE: {self._server_url}")
+        logger.info(f"Connecting to MCP server via Streamable HTTP: {self._server_url}")
         
         # Build headers with access token if available
         headers = {}
         if self._current_access_token:
             headers["Authorization"] = f"Bearer {self._current_access_token}"
         
-        sse_transport = await self.exit_stack.enter_async_context(
-            sse_client(self._server_url, headers=headers)
+        http_transport = await self.exit_stack.enter_async_context(
+            streamablehttp_client(self._server_url, headers=headers)
         )
-        self.read_stream, self.write_stream = sse_transport
+        self.read_stream, self.write_stream, _ = http_transport
         self.session = await self.exit_stack.enter_async_context(
             ClientSession(self.read_stream, self.write_stream)
         )
         
         await self.session.initialize()
-        logger.info("Connected to MCP server via SSE")
+        logger.info("Connected to MCP server via Streamable HTTP")
         
         await self._load_tools()
         return True
