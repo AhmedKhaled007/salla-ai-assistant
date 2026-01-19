@@ -11,11 +11,11 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 /**
  * Send a query to the AI agent (non-streaming)
  * @param {string} query - The user's query
- * @param {string|null} sessionId - Optional conversation session ID
+ * @param {string|null} conversationId - Optional conversation ID
  * @param {string|null} authSessionId - Optional OAuth session ID for authentication
- * @returns {Promise<{session_id: string, messages: Array}>} - The response
+ * @returns {Promise<{conversation_id: string, messages: Array}>} - The response
  */
-export async function sendQuery(query, sessionId = null, authSessionId = null) {
+export async function sendQuery(query, conversationId = null, authSessionId = null) {
     const headers = {
         'Content-Type': 'application/json',
     };
@@ -29,7 +29,7 @@ export async function sendQuery(query, sessionId = null, authSessionId = null) {
         headers,
         body: JSON.stringify({
             query,
-            session_id: sessionId,
+            conversation_id: conversationId,
         }),
     });
 
@@ -44,10 +44,10 @@ export async function sendQuery(query, sessionId = null, authSessionId = null) {
 /**
  * Send a query with SSE streaming
  * @param {string} query - The user's query
- * @param {string|null} sessionId - Optional conversation session ID
+ * @param {string|null} conversationId - Optional conversation ID
  * @param {string|null} authSessionId - Optional OAuth session ID for authentication
  * @param {object} callbacks - Event callbacks
- * @param {function} callbacks.onSession - Called with session_id
+ * @param {function} callbacks.onConversation - Called with conversation_id
  * @param {function} callbacks.onToolCall - Called with {tool_name, tool_args}
  * @param {function} callbacks.onToolResult - Called with {tool_name, result}
  * @param {function} callbacks.onResponse - Called with response content
@@ -55,7 +55,7 @@ export async function sendQuery(query, sessionId = null, authSessionId = null) {
  * @param {function} callbacks.onDone - Called when complete
  * @returns {Promise<void>}
  */
-export async function sendQueryStream(query, sessionId = null, authSessionId = null, callbacks = {}) {
+export async function sendQueryStream(query, conversationId = null, authSessionId = null, callbacks = {}) {
     const headers = {
         'Content-Type': 'application/json',
     };
@@ -69,7 +69,7 @@ export async function sendQueryStream(query, sessionId = null, authSessionId = n
         headers,
         body: JSON.stringify({
             query,
-            session_id: sessionId,
+            conversation_id: conversationId,
         }),
     });
 
@@ -96,8 +96,8 @@ export async function sendQueryStream(query, sessionId = null, authSessionId = n
                     const event = JSON.parse(line.slice(6));
 
                     switch (event.type) {
-                        case 'session':
-                            callbacks.onSession?.(event.session_id);
+                        case 'conversation':
+                            callbacks.onConversation?.(event.conversation_id);
                             break;
                         case 'tool_call':
                             callbacks.onToolCall?.({
@@ -118,7 +118,7 @@ export async function sendQueryStream(query, sessionId = null, authSessionId = n
                             callbacks.onError?.(event.message);
                             break;
                         case 'done':
-                            callbacks.onDone?.(event.session_id);
+                            callbacks.onDone?.(event.conversation_id);
                             break;
                     }
                 } catch (e) {
@@ -157,68 +157,68 @@ export async function checkHealth() {
     return response.json();
 }
 
-// ============ Session Management ============
+// ============ Conversation Management ============
 
 /**
- * Create a new conversation session
- * @returns {Promise<{session_id: string}>}
+ * Create a new conversation
+ * @returns {Promise<{conversation_id: string}>}
  */
-export async function createSession() {
-    const response = await fetch(`${API_BASE_URL}/api/sessions`, {
+export async function createConversation() {
+    const response = await fetch(`${API_BASE_URL}/api/conversations`, {
         method: 'POST',
     });
 
     if (!response.ok) {
-        throw new Error('Failed to create session');
+        throw new Error('Failed to create conversation');
     }
 
     return response.json();
 }
 
 /**
- * Get all active sessions
- * @returns {Promise<{sessions: string[]}>}
+ * Get all active conversations
+ * @returns {Promise<{conversations: string[]}>}
  */
-export async function getSessions() {
-    const response = await fetch(`${API_BASE_URL}/api/sessions`);
+export async function getConversations() {
+    const response = await fetch(`${API_BASE_URL}/api/conversations`);
 
     if (!response.ok) {
-        throw new Error('Failed to fetch sessions');
+        throw new Error('Failed to fetch conversations');
     }
 
     return response.json();
 }
 
 /**
- * Get messages for a specific session
- * @param {string} sessionId - The session ID
- * @returns {Promise<{session_id: string, messages: Array}>}
+ * Get messages for a specific conversation
+ * @param {string} conversationId - The conversation ID
+ * @returns {Promise<{conversation_id: string, messages: Array}>}
  */
-export async function getSession(sessionId) {
-    const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`);
+export async function getConversation(conversationId) {
+    const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}`);
 
     if (!response.ok) {
         if (response.status === 404) {
             return null;
         }
-        throw new Error('Failed to fetch session');
+        throw new Error('Failed to fetch conversation');
     }
 
     return response.json();
 }
 
 /**
- * Delete a conversation session
- * @param {string} sessionId - The session ID to delete
+ * Delete a conversation
+ * @param {string} conversationId - The conversation ID to delete
  * @returns {Promise<{message: string}>}
  */
-export async function deleteSession(sessionId) {
-    const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`, {
+export async function deleteConversation(conversationId) {
+    const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}`, {
         method: 'DELETE',
     });
 
     if (!response.ok) {
-        throw new Error('Failed to delete session');
+        throw new Error('Failed to delete conversation');
     }
 
     return response.json();

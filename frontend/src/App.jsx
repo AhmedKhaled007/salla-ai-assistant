@@ -8,7 +8,7 @@ import { ChatContainer } from './components/chat/ChatContainer';
 import { useChat } from './hooks/useChat';
 import { useToast, ToastProvider } from './components/ui/Toast';
 import { useMediaQuery } from './hooks/useMediaQuery';
-import { getSessions, getSession, deleteSession, checkHealth } from './services/api';
+import { getConversations, getConversation, deleteConversation, checkHealth } from './services/api';
 
 // Protected route wrapper
 function ProtectedRoute({ children }) {
@@ -35,8 +35,8 @@ function ProtectedRoute({ children }) {
 // Main chat application content
 function ChatApp() {
   const { logout, merchantInfo, authSessionId } = useAuth();
-  const { messages, isLoading, sessionId, sendMessage, clearMessages, setMessages, setSessionId } = useChat(authSessionId);
-  const [sessions, setSessions] = useState([]);
+  const { messages, isLoading, conversationId, sendMessage, clearMessages, setMessages, setConversationId } = useChat(authSessionId);
+  const [conversations, setConversations] = useState([]);
   const [healthStatus, setHealthStatus] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { showError, showSuccess, showWarning } = useToast();
@@ -51,13 +51,13 @@ function ChatApp() {
 
   // Fetch sessions on mount
   useEffect(() => {
-    const fetchSessions = async () => {
+    const fetchConversations = async () => {
       try {
-        const data = await getSessions();
-        setSessions(data.sessions || []);
+        const data = await getConversations();
+        setConversations(data.conversations || []);
       } catch (err) {
         // Silent fail for session fetch - not critical
-        console.error('Failed to fetch sessions:', err);
+        console.error('Failed to fetch conversations:', err);
       }
     };
 
@@ -74,28 +74,28 @@ function ChatApp() {
       }
     };
 
-    fetchSessions();
+    fetchConversations();
     fetchHealth();
   }, [showError, showWarning]);
 
-  // Refresh sessions when current session changes
+  // Refresh conversations when current conversation changes
   useEffect(() => {
-    if (sessionId) {
-      setSessions(prev => {
-        if (!prev.includes(sessionId)) {
-          return [sessionId, ...prev];
+    if (conversationId) {
+      setConversations(prev => {
+        if (!prev.includes(conversationId)) {
+          return [conversationId, ...prev];
         }
         return prev;
       });
     }
-  }, [sessionId]);
+  }, [conversationId]);
 
-  // Load a previous session
-  const handleLoadSession = useCallback(async (id) => {
+  // Load a previous conversation
+  const handleLoadConversation = useCallback(async (id) => {
     try {
-      const data = await getSession(id);
+      const data = await getConversation(id);
       if (data) {
-        setSessionId(id);
+        setConversationId(id);
         // Convert messages to frontend format
         const formattedMessages = data.messages
           .filter(msg => msg.role !== 'system')
@@ -110,21 +110,21 @@ function ChatApp() {
     } catch (err) {
       showError('Failed to load conversation');
     }
-  }, [setMessages, setSessionId, showError]);
+  }, [setMessages, setConversationId, showError]);
 
-  // Delete a session
-  const handleDeleteSession = useCallback(async (id) => {
+  // Delete a conversation
+  const handleDeleteConversation = useCallback(async (id) => {
     try {
-      await deleteSession(id);
-      setSessions(prev => prev.filter(s => s !== id));
-      if (sessionId === id) {
+      await deleteConversation(id);
+      setConversations(prev => prev.filter(s => s !== id));
+      if (conversationId === id) {
         clearMessages();
       }
       showSuccess('Conversation deleted');
     } catch (err) {
       showError('Failed to delete conversation');
     }
-  }, [sessionId, clearMessages, showError, showSuccess]);
+  }, [conversationId, clearMessages, showError, showSuccess]);
 
   // Quick action handlers
   const handleQuickAction = useCallback((query) => {
@@ -141,10 +141,10 @@ function ChatApp() {
     <div className="flex min-h-screen w-full bg-gradient-to-b from-accent to-bg-primary overflow-hidden">
       <Sidebar
         onNewChat={clearMessages}
-        sessions={sessions}
-        currentSessionId={sessionId}
-        onLoadSession={handleLoadSession}
-        onDeleteSession={handleDeleteSession}
+        conversations={conversations}
+        currentConversationId={conversationId}
+        onLoadConversation={handleLoadConversation}
+        onDeleteConversation={handleDeleteConversation}
         onQuickAction={handleQuickAction}
         onLogout={handleLogout}
         healthStatus={healthStatus}

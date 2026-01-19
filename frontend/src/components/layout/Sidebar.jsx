@@ -3,10 +3,10 @@
  */
 export function Sidebar({
     onNewChat,
-    sessions = [],
-    currentSessionId,
-    onLoadSession,
-    onDeleteSession,
+    conversations = [],
+    currentConversationId,
+    onLoadConversation,
+    onDeleteConversation,
     onQuickAction,
     onLogout,
     healthStatus,
@@ -22,7 +22,7 @@ export function Sidebar({
         { icon: '👥', label: 'Customers', query: 'Show me customer information' },
     ];
 
-    const formatSessionId = (id) => {
+    const formatConversationId = (id) => {
         // Show first 8 chars of session ID
         return id.length > 8 ? `${id.slice(0, 8)}...` : id;
     };
@@ -95,33 +95,33 @@ export function Sidebar({
                         </div>
                     </div>
 
-                    {/* Session History */}
-                    {sessions.length > 0 && (
+                    {/* Conversation History */}
+                    {conversations.length > 0 && (
                         <div>
                             <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">
                                 Conversations
                             </h3>
                             <div className="flex flex-col gap-1">
-                                {sessions.slice(0, 10).map((id) => (
+                                {conversations.slice(0, 10).map((id) => (
                                     <div
                                         key={id}
-                                        className={`group flex items-center justify-between px-4 py-2 rounded-lg cursor-pointer transition-all ${currentSessionId === id
+                                        className={`group flex items-center justify-between px-4 py-2 rounded-lg cursor-pointer transition-all ${currentConversationId === id
                                             ? 'bg-accent text-primary'
                                             : 'text-text-secondary hover:bg-accent/50'
                                             }`}
                                         onClick={() => {
-                                            onLoadSession?.(id);
+                                            onLoadConversation?.(id);
                                             onClose?.();
                                         }}
                                     >
                                         <div className="flex items-center gap-3">
                                             <span>💬</span>
-                                            <span className="text-sm font-mono">{formatSessionId(id)}</span>
+                                            <span className="text-sm font-mono">{formatConversationId(id)}</span>
                                         </div>
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                onDeleteSession?.(id);
+                                                onDeleteConversation?.(id);
                                             }}
                                             className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-error transition-all"
                                             title="Delete conversation"
