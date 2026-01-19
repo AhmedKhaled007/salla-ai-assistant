@@ -22,72 +22,72 @@ from src.agent.repositories import (
 class TestMCPClient:
     """Tests for MCPClient class."""
 
-    async def test_create_session(self):
-        """Test session creation returns valid UUID."""
+    async def test_create_conversation(self):
+        """Test conversation creation returns valid UUID."""
         client = MCPClient()
-        session_id = await client.create_session()
+        conversation_id = await client.create_conversation()
         
-        assert session_id is not None
-        assert len(session_id) == 36  # UUID format
+        assert conversation_id is not None
+        assert len(conversation_id) == 36  # UUID format
 
-    async def test_get_session_existing(self):
-        """Test getting an existing session."""
+    async def test_get_conversation_existing(self):
+        """Test getting an existing conversation."""
         client = MCPClient()
-        session_id = await client.create_session()
+        conversation_id = await client.create_conversation()
         
-        # Manually inject session into repo for testing
+        # Manually inject conversation into repo for testing
         repo = client._conversation_repo
-        await repo.store(session_id, [{"role": "test"}])
+        await repo.store(conversation_id, [{"role": "test"}])
         
-        messages = await client.get_session(session_id)
+        messages = await client.get_conversation(conversation_id)
         
         assert messages is not None
         assert len(messages) == 1
         assert messages[0]["role"] == "test"
 
-    async def test_get_session_nonexistent(self):
-        """Test getting a non-existent session returns None."""
+    async def test_get_conversation_nonexistent(self):
+        """Test getting a non-existent conversation returns None."""
         client = MCPClient()
         
-        messages = await client.get_session("nonexistent-id")
+        messages = await client.get_conversation("nonexistent-id")
         
         assert messages is None
 
-    async def test_delete_session_existing(self):
-        """Test deleting an existing session."""
+    async def test_delete_conversation_existing(self):
+        """Test deleting an existing conversation."""
         client = MCPClient()
-        session_id = await client.create_session()
+        conversation_id = await client.create_conversation()
         repo = client._conversation_repo
-        await repo.store(session_id, [])
+        await repo.store(conversation_id, [])
         
-        deleted = await client.delete_session(session_id)
+        deleted = await client.delete_conversation(conversation_id)
         
         assert deleted is True
 
-    async def test_delete_session_nonexistent(self):
-        """Test deleting a non-existent session returns False."""
+    async def test_delete_conversation_nonexistent(self):
+        """Test deleting a non-existent conversation returns False."""
         client = MCPClient()
         
-        deleted = await client.delete_session("nonexistent-id")
+        deleted = await client.delete_conversation("nonexistent-id")
         
         assert deleted is False
 
-    async def test_list_sessions(self):
-        """Test listing all sessions."""
+    async def test_list_conversations(self):
+        """Test listing all conversations."""
         client = MCPClient()
-        id1 = await client.create_session()
-        id2 = await client.create_session()
+        id1 = await client.create_conversation()
+        id2 = await client.create_conversation()
         
         # Ensure stored
         repo = client._conversation_repo
         await repo.store(id1, [])
         await repo.store(id2, [])
         
-        sessions = await client.list_sessions()
+        conversations = await client.list_conversations()
         
-        assert len(sessions) >= 2
-        assert id1 in sessions
-        assert id2 in sessions
+        assert len(conversations) >= 2
+        assert id1 in conversations
+        assert id2 in conversations
 
 
 # ============================================================================
@@ -233,8 +233,8 @@ def mock_client_pool():
     # Create a mock client that the pool returns
     mock_client = MagicMock(spec=MCPClient)
     mock_client.session = MagicMock()
-    mock_client.list_sessions = AsyncMock(return_value=[])
-    mock_client._sessions = {}
+    mock_client.list_conversations = AsyncMock(return_value=[])
+    mock_client._conversations = {}
     
     mock.get_client = AsyncMock(return_value=mock_client)
     mock.release_client = AsyncMock()
@@ -311,8 +311,8 @@ async def test_process_query(async_client):
 
 
 @pytest.mark.asyncio
-async def test_process_query_with_session(async_client):
-    """Test query with existing session ID."""
+async def test_process_query_with_conversation(async_client):
+    """Test query with existing conversation ID."""
     client, mock_pool, mock_client = async_client
     mock_client.process_query = AsyncMock(return_value=[
         {"role": "assistant", "content": "Continued conversation"}
@@ -320,46 +320,46 @@ async def test_process_query_with_session(async_client):
     
     response = await client.post(
         "/api/query",
-        json={"query": "Continue", "session_id": "existing-session"}
+        json={"query": "Continue", "conversation_id": "existing-conversation"}
     )
     
     assert response.status_code == 200
-    mock_client.process_query.assert_called_once_with("Continue", "existing-session")
+    mock_client.process_query.assert_called_once_with("Continue", "existing-conversation")
 
 
 @pytest.mark.asyncio
-async def test_create_session(async_client):
-    """Test session creation endpoint."""
+async def test_create_conversation(async_client):
+    """Test conversation creation endpoint."""
     client, mock_pool, mock_client = async_client
-    mock_client.create_session = AsyncMock(return_value="new-session-id")
+    mock_client.create_conversation = AsyncMock(return_value="new-conversation-id")
     
-    response = await client.post("/api/sessions")
+    response = await client.post("/api/conversations")
     
     assert response.status_code == 200
     data = response.json()
-    assert data["session_id"] == "new-session-id"
+    assert data["conversation_id"] == "new-conversation-id"
 
 
 @pytest.mark.asyncio
-async def test_list_sessions(async_client):
-    """Test listing sessions endpoint."""
+async def test_list_conversations(async_client):
+    """Test listing conversations endpoint."""
     client, mock_pool, mock_client = async_client
-    mock_client.list_sessions = AsyncMock(return_value=["session1", "session2"])
+    mock_client.list_conversations = AsyncMock(return_value=["conversation1", "conversation2"])
     
-    response = await client.get("/api/sessions")
+    response = await client.get("/api/conversations")
     
     assert response.status_code == 200
     data = response.json()
-    assert data["sessions"] == ["session1", "session2"]
+    assert data["conversations"] == ["conversation1", "conversation2"]
 
 
 @pytest.mark.asyncio
-async def test_get_session(async_client):
-    """Test getting a specific session."""
+async def test_get_conversation(async_client):
+    """Test getting a specific conversation."""
     client, mock_pool, mock_client = async_client
-    mock_client.get_session = AsyncMock(return_value=[{"role": "user", "content": "test"}])
+    mock_client.get_conversation = AsyncMock(return_value=[{"role": "user", "content": "test"}])
     
-    response = await client.get("/api/sessions/test-session")
+    response = await client.get("/api/conversations/test-conversation")
     
     assert response.status_code == 200
     data = response.json()
@@ -367,34 +367,34 @@ async def test_get_session(async_client):
 
 
 @pytest.mark.asyncio
-async def test_get_session_not_found(async_client):
-    """Test getting a non-existent session returns 404."""
+async def test_get_conversation_not_found(async_client):
+    """Test getting a non-existent conversation returns 404."""
     client, mock_pool, mock_client = async_client
-    mock_client.get_session = AsyncMock(return_value=None)
+    mock_client.get_conversation = AsyncMock(return_value=None)
     
-    response = await client.get("/api/sessions/nonexistent")
+    response = await client.get("/api/conversations/nonexistent")
     
     assert response.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_delete_session(async_client):
-    """Test deleting a session."""
+async def test_delete_conversation(async_client):
+    """Test deleting a conversation."""
     client, mock_pool, mock_client = async_client
-    mock_client.delete_session = AsyncMock(return_value=True)
+    mock_client.delete_conversation = AsyncMock(return_value=True)
     
-    response = await client.delete("/api/sessions/test-session")
+    response = await client.delete("/api/conversations/test-conversation")
     
     assert response.status_code == 200
 
 
 @pytest.mark.asyncio
-async def test_delete_session_not_found(async_client):
-    """Test deleting a non-existent session returns 404."""
+async def test_delete_conversation_not_found(async_client):
+    """Test deleting a non-existent conversation returns 404."""
     client, mock_pool, mock_client = async_client
-    mock_client.delete_session = AsyncMock(return_value=False)
+    mock_client.delete_conversation = AsyncMock(return_value=False)
     
-    response = await client.delete("/api/sessions/nonexistent")
+    response = await client.delete("/api/conversations/nonexistent")
     
     assert response.status_code == 404
 

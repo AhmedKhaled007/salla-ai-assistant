@@ -106,26 +106,26 @@ class MCPClient:
             
         return True
 
-    async def create_session(self) -> str:
+    async def create_conversation(self) -> str:
         """Create a new conversation session and return its ID."""
-        session_id = str(uuid.uuid4())
+        conversation_id = str(uuid.uuid4())
         # We don't need to persist empty sessions, but we could
-        logger.info(f"Created new session: {session_id}")
-        return session_id
+        logger.info(f"Created new conversation: {conversation_id}")
+        return conversation_id
 
-    async def get_session(self, session_id: str) -> Optional[list]:
-        """Get messages for a session. Returns None if session doesn't exist."""
+    async def get_conversation(self, conversation_id: str) -> Optional[list]:
+        """Get messages for a conversation. Returns None if conversation doesn't exist."""
         repo = self._conversation_repo
-        return await repo.get(session_id)
+        return await repo.get(conversation_id)
 
-    async def delete_session(self, session_id: str) -> bool:
-        """Delete a session. Returns True if session existed."""
+    async def delete_conversation(self, conversation_id: str) -> bool:
+        """Delete a conversation. Returns True if conversation existed."""
         repo = self._conversation_repo
         # We might also want to delete log files if we were strictly cleaning up
-        return await repo.delete(session_id)
+        return await repo.delete(conversation_id)
 
-    async def list_sessions(self) -> list[str]:
-        """List all active session IDs."""
+    async def list_conversations(self) -> list[str]:
+        """List all active conversation IDs."""
         repo = self._conversation_repo
         return await repo.list_sessions()
         
@@ -272,16 +272,16 @@ class MCPClient:
         result = await self.session.list_tools()
         return result.tools
 
-    async def process_query(self, query: str, session_id: str | None = None) -> list:
+    async def process_query(self, query: str, conversation_id: str | None = None) -> list:
         """Process a user query using the LLM with tool access.
         
         This method sends the query to the LLM, handles any tool calls,
-        and returns the complete conversation. If a session_id is provided,
+        and returns the complete conversation. If a conversation_id is provided,
         it uses the existing conversation context.
         
         Args:
             query: The user's query string.
-            session_id: Optional session ID to continue a conversation.
+            conversation_id: Optional conversation ID to continue a conversation.
             
         Returns:
             List of message dictionaries representing the conversation.
@@ -299,8 +299,8 @@ class MCPClient:
         
         # Load or initialize conversation
         messages = []
-        if session_id:
-             stored_messages = await self.get_session(session_id)
+        if conversation_id:
+             stored_messages = await self.get_conversation(conversation_id)
              if stored_messages:
                  messages = stored_messages
         
@@ -397,41 +397,39 @@ class MCPClient:
              messages.append({"role": "assistant", "content": timeout_msg})
              
         # Save conversation locally (for debugging/logs)
-        if session_id:
+        if conversation_id:
              repo = self._conversation_repo
-             await repo.store(session_id, messages)
+             await repo.store(conversation_id, messages)
              
              # Also log to file system for debugging
-             await self._log_conversation(session_id, messages)
+             await self._log_conversation(conversation_id, messages)
 
         # Filter out system messages before returning to client
         return [msg for msg in messages if msg.get("role") != "system"]
 
-    async def process_query_stream(self, query: str, session_id: str | None = None):
+    async def process_query_stream(self, query: str, conversation_id: str | None = None):
         """Process a query with streaming, yielding events for each step.
         
         Yields dictionaries with event types:
-        - {"type": "session", "session_id": str}
+        - {"type": "conversation", "conversation_id": str}
         - {"type": "tool_call", "tool_name": str, "tool_args": dict}
         - {"type": "tool_result", "tool_name": str, "result": str}
         - {"type": "response", "content": str}
         - {"type": "error", "message": str}
-        - {"type": "done", "session_id": str}
+        - {"type": "done", "conversation_id": str}
         """
         await self.ensure_connected()
         
         # Load or initialize conversation
         messages = []
-        if session_id:
-            logger.info(f"Loading session {session_id}")
-            stored_messages = await self.get_session(session_id)
-            if stored_messages:
-                logger.info(f"Found session message {stored_messages}")
-                messages = stored_messages
+        if conversation_id:
+             stored_messages = await self.get_conversation(conversation_id)
+             if stored_messages:
+                 messages = stored_messages
         else:
-            session_id = await self.create_session()
+             conversation_id = await self.create_conversation()
              
-        yield {"type": "session", "session_id": session_id}
+        yield {"type": "conversation", "conversation_id": conversation_id}
         
         if not messages:
              messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -567,12 +565,12 @@ class MCPClient:
 
         # Save session
         repo = self._conversation_repo
-        await repo.store(session_id, messages)
-        await self._log_conversation(session_id, messages)
+        await repo.store(conversation_id, messages)
+        await self._log_conversation(conversation_id, messages)
         
         # Filter out system messages from final messages list
         filtered_messages = [msg for msg in messages if msg.get("role") != "system"]
-        yield {"type": "done", "session_id": session_id, "messages": filtered_messages}
+        yield {"type": "done", "session_id": conversation_id, "messages": filtered_messages}
 
     async def _call_llm(self, messages: list, tools: list = None, stream: bool = False):
         """Internal method to call the LLM with exponential backoff retry."""
@@ -615,7 +613,7 @@ class MCPClient:
             await self.exit_stack.aclose()
             self.session = None
 
-    async def _log_conversation(self, session_id: str, messages: list):
+    async def _log_conversation(self, conversation_id: str, messages: list):
         """Save conversation to a JSON file asynchronously."""
         try:
             log_dir = settings.conversation_log_dir
@@ -623,7 +621,7 @@ class MCPClient:
             
             # Format filename with timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{log_dir}/{session_id}_{timestamp}.json"
+            filename = f"{log_dir}/{conversation_id}_{timestamp}.json"
             
             # Sanitize messages to not include huge unrelated data if any
             # (Pydantic models might need dumping)

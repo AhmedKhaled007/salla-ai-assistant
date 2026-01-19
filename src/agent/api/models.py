@@ -14,9 +14,9 @@ class QueryRequest(BaseModel):
         max_length=settings.max_query_length,
         description="The user's query text"
     )
-    session_id: str | None = Field(
+    conversation_id: str | None = Field(
         default=None,
-        description="Optional conversation session ID to continue existing conversation"
+        description="Optional conversation ID to continue existing conversation"
     )
 
 

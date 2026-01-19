@@ -23,7 +23,7 @@ async def process_query(
     """Process a query and return the response.
     
     Uses MCPClientPool to get a per-user client for token isolation.
-    If session_id is provided, continues the existing conversation.
+    If conversation_id is provided, continues the existing conversation.
     If auth_session_id is provided (via header), uses the user's OAuth token.
     """
     pool = get_pool(req)
@@ -37,7 +37,7 @@ async def process_query(
 
     try:
         client = await pool.get_client(auth_session_id, access_token)
-        messages = await client.process_query(request.query, request.session_id)
+        messages = await client.process_query(request.query, request.conversation_id)
         return {"messages": messages}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -52,7 +52,7 @@ async def process_query_stream(
     """Process a query with Server-Sent Events streaming.
     
     Uses MCPClientPool to get a per-user client for token isolation.
-    Returns events as they happen: session, tool_call, tool_result, response, error, done.
+    Returns events as they happen: conversation, tool_call, tool_result, response, error, done.
     """
     pool = get_pool(req)
     
@@ -66,7 +66,7 @@ async def process_query_stream(
     async def event_generator():
         import json
         try:
-            async for event in client.process_query_stream(request.query, request.session_id):
+            async for event in client.process_query_stream(request.query, request.conversation_id):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"

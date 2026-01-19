@@ -17,20 +17,20 @@ class ConversationRepository(ABC):
     """Repository for conversation sessions (optional persistence)."""
 
     @abstractmethod
-    async def store(self, session_id: str, messages: list) -> None:
+    async def store(self, conversation_id: str, messages: list) -> None:
         """Store conversation messages."""
 
     @abstractmethod
-    async def get(self, session_id: str) -> Optional[list]:
-        """Get messages for session."""
+    async def get(self, conversation_id: str) -> Optional[list]:
+        """Get messages for conversation."""
 
     @abstractmethod
-    async def delete(self, session_id: str) -> bool:
-        """Delete session. Returns True if existed."""
+    async def delete(self, conversation_id: str) -> bool:
+        """Delete conversation. Returns True if existed."""
 
     @abstractmethod
-    async def list_sessions(self) -> list[str]:
-        """List all session IDs."""
+    async def list_conversations(self) -> list[str]:
+        """List all conversation IDs."""
 
 
 # =============================================================================
@@ -45,22 +45,22 @@ class InMemoryConversationRepository(ConversationRepository):
         self._store: dict[str, list] = {}
         self._lock = asyncio.Lock()
 
-    async def store(self, session_id: str, messages: list) -> None:
+    async def store(self, conversation_id: str, messages: list) -> None:
         async with self._lock:
-            self._store[session_id] = messages
+            self._store[conversation_id] = messages
 
-    async def get(self, session_id: str) -> Optional[list]:
+    async def get(self, conversation_id: str) -> Optional[list]:
         async with self._lock:
-            return self._store.get(session_id)
+            return self._store.get(conversation_id)
 
-    async def delete(self, session_id: str) -> bool:
+    async def delete(self, conversation_id: str) -> bool:
         async with self._lock:
-            if session_id in self._store:
-                del self._store[session_id]
+            if conversation_id in self._store:
+                del self._store[conversation_id]
                 return True
             return False
 
-    async def list_sessions(self) -> list[str]:
+    async def list_conversations(self) -> list[str]:
         async with self._lock:
             return list(self._store.keys())
 
@@ -68,21 +68,21 @@ class InMemoryConversationRepository(ConversationRepository):
 class SQLAlchemyConversationRepository(ConversationRepository):
     """SQLAlchemy-based conversation storage."""
 
-    async def store(self, session_id: str, messages: list) -> None:
+    async def store(self, conversation_id: str, messages: list) -> None:
         async for session in get_db():
             # Check if conversation exists
-            stmt = select(Conversation).where(Conversation.id == session_id)
+            stmt = select(Conversation).where(Conversation.id == conversation_id)
             result = await session.execute(stmt)
             conversation = result.scalar_one_or_none()
             
             if not conversation:
-                conversation = Conversation(id=session_id)
+                conversation = Conversation(id=conversation_id)
                 session.add(conversation)
                 await session.flush() # ensure ID is available
             
             # Delete existing messages to replace them (inefficient but simple for now)
             # A better approach would be to differential update, but messages don't have IDs in the input list.
-            await session.execute(delete(Message).where(Message.conversation_id == session_id))
+            await session.execute(delete(Message).where(Message.conversation_id == conversation_id))
             
             # Insert new messages
             for msg in messages:
@@ -100,7 +100,7 @@ class SQLAlchemyConversationRepository(ConversationRepository):
                     content = json.dumps(content, ensure_ascii=False)
                     
                 message = Message(
-                    conversation_id=session_id,
+                    conversation_id=conversation_id,
                     role=msg.get("role"),
                     content=content
                     # created_at automatically handled
@@ -109,11 +109,11 @@ class SQLAlchemyConversationRepository(ConversationRepository):
             
             await session.commit()
 
-    async def get(self, session_id: str) -> Optional[list]:
+    async def get(self, conversation_id: str) -> Optional[list]:
         async for session in get_db():
             stmt = select(Conversation).options(
                 selectinload(Conversation.messages)
-            ).where(Conversation.id == session_id)
+            ).where(Conversation.id == conversation_id)
             
             result = await session.execute(stmt)
             conversation = result.scalar_one_or_none()
@@ -144,9 +144,9 @@ class SQLAlchemyConversationRepository(ConversationRepository):
             
             return messages
 
-    async def delete(self, session_id: str) -> bool:
+    async def delete(self, conversation_id: str) -> bool:
         async for session in get_db():
-            stmt = select(Conversation).where(Conversation.id == session_id)
+            stmt = select(Conversation).where(Conversation.id == conversation_id)
             result = await session.execute(stmt)
             conversation = result.scalar_one_or_none()
             
@@ -156,7 +156,7 @@ class SQLAlchemyConversationRepository(ConversationRepository):
                 return True
             return False
 
-    async def list_sessions(self) -> list[str]:
+    async def list_conversations(self) -> list[str]:
         async for session in get_db():
             stmt = select(Conversation.id)
             result = await session.execute(stmt)
