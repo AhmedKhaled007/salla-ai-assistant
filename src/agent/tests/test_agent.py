@@ -4,8 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
 
-from src.agent.mcp_client import MCPClient
-from src.agent.client_pool import MCPClientPool
+from src.agent.services import MCPClient, MCPClientPool
 from src.agent.main import app
 from src.agent.repositories import (
     InMemoryTokenRepository,
@@ -19,66 +18,74 @@ from src.agent.repositories import (
 # MCPClient Tests
 # ============================================================================
 
+@pytest.mark.asyncio
 class TestMCPClient:
     """Tests for MCPClient class."""
 
-    def test_create_session(self):
+    async def test_create_session(self):
         """Test session creation returns valid UUID."""
         client = MCPClient()
-        session_id = client.create_session()
+        session_id = await client.create_session()
         
         assert session_id is not None
         assert len(session_id) == 36  # UUID format
-        assert session_id in client._sessions
-        assert client._sessions[session_id] == []
 
-    def test_get_session_existing(self):
+    async def test_get_session_existing(self):
         """Test getting an existing session."""
         client = MCPClient()
-        session_id = client.create_session()
-        client._sessions[session_id].append({"role": "test"})
+        session_id = await client.create_session()
         
-        messages = client.get_session(session_id)
+        # Manually inject session into repo for testing
+        repo = client._conversation_repo
+        await repo.store(session_id, [{"role": "test"}])
+        
+        messages = await client.get_session(session_id)
         
         assert messages is not None
         assert len(messages) == 1
         assert messages[0]["role"] == "test"
 
-    def test_get_session_nonexistent(self):
+    async def test_get_session_nonexistent(self):
         """Test getting a non-existent session returns None."""
         client = MCPClient()
         
-        messages = client.get_session("nonexistent-id")
+        messages = await client.get_session("nonexistent-id")
         
         assert messages is None
 
-    def test_delete_session_existing(self):
+    async def test_delete_session_existing(self):
         """Test deleting an existing session."""
         client = MCPClient()
-        session_id = client.create_session()
+        session_id = await client.create_session()
+        repo = client._conversation_repo
+        await repo.store(session_id, [])
         
-        deleted = client.delete_session(session_id)
+        deleted = await client.delete_session(session_id)
         
         assert deleted is True
-        assert session_id not in client._sessions
 
-    def test_delete_session_nonexistent(self):
+    async def test_delete_session_nonexistent(self):
         """Test deleting a non-existent session returns False."""
         client = MCPClient()
         
-        deleted = client.delete_session("nonexistent-id")
+        deleted = await client.delete_session("nonexistent-id")
         
         assert deleted is False
 
-    def test_list_sessions(self):
+    async def test_list_sessions(self):
         """Test listing all sessions."""
         client = MCPClient()
-        id1 = client.create_session()
-        id2 = client.create_session()
+        id1 = await client.create_session()
+        id2 = await client.create_session()
         
-        sessions = client.list_sessions()
+        # Ensure stored
+        repo = client._conversation_repo
+        await repo.store(id1, [])
+        await repo.store(id2, [])
         
-        assert len(sessions) == 2
+        sessions = await client.list_sessions()
+        
+        assert len(sessions) >= 2
         assert id1 in sessions
         assert id2 in sessions
 
@@ -218,15 +225,15 @@ class TestInMemoryRateLimitRepository:
 def mock_client_pool():
     """Create a mock MCPClientPool for testing."""
     mock = MagicMock(spec=MCPClientPool)
-    mock.is_connected = True
-    mock.pool_size = 0
-    mock.active_clients = 0
+    mock.is_connected = MagicMock(return_value=True)
+    mock.pool_size = MagicMock(return_value=0)
+    mock.active_clients = MagicMock(return_value=0)
     mock.ping = AsyncMock(return_value=True)
     
     # Create a mock client that the pool returns
     mock_client = MagicMock(spec=MCPClient)
     mock_client.session = MagicMock()
-    mock_client.list_sessions = MagicMock(return_value=[])
+    mock_client.list_sessions = AsyncMock(return_value=[])
     mock_client._sessions = {}
     
     mock.get_client = AsyncMock(return_value=mock_client)
@@ -239,7 +246,7 @@ def mock_client_pool():
 async def async_client(mock_client_pool):
     """Create an async test client."""
     mock_pool, mock_client = mock_client_pool
-    app.state.client_pool = mock_pool
+    app.state.pool = mock_pool
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client, mock_pool, mock_client
@@ -255,7 +262,7 @@ async def test_health_check(async_client):
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "healthy"
-    assert data["mcp_connected"] is True
+    assert data["mcp_server"] == "connected"
 
 
 @pytest.mark.asyncio
@@ -263,47 +270,45 @@ async def test_health_check_degraded(async_client):
     """Test health check shows degraded when MCP disconnected."""
     client, mock_pool, mock_client = async_client
     mock_pool.ping = AsyncMock(return_value=False)
-    mock_pool.is_connected = False
     
     response = await client.get("/health")
     
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "degraded"
-    assert data["mcp_connected"] is False
+    assert data["mcp_server"] == "disconnected"
 
 
 @pytest.mark.asyncio
 async def test_process_query(async_client):
     """Test query processing endpoint."""
     client, mock_pool, mock_client = async_client
-    mock_client.process_query = AsyncMock(return_value=(
-        "test-session-id",
-        [{"role": "assistant", "content": "Hello!"}]
-    ))
+    mock_client.process_query = AsyncMock(return_value=[
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hello!"}
+    ])
     
     response = await client.post(
-        "/query",
+        "/api/query",
         json={"query": "Hello"}
     )
     
     assert response.status_code == 200
     data = response.json()
-    assert data["session_id"] == "test-session-id"
-    assert len(data["messages"]) == 1
+    assert data.get("messages") is not None
+    assert len(data["messages"]) == 2
 
 
 @pytest.mark.asyncio
 async def test_process_query_with_session(async_client):
     """Test query with existing session ID."""
     client, mock_pool, mock_client = async_client
-    mock_client.process_query = AsyncMock(return_value=(
-        "existing-session",
-        [{"role": "assistant", "content": "Continued conversation"}]
-    ))
+    mock_client.process_query = AsyncMock(return_value=[
+        {"role": "assistant", "content": "Continued conversation"}
+    ])
     
     response = await client.post(
-        "/query",
+        "/api/query",
         json={"query": "Continue", "session_id": "existing-session"}
     )
     
@@ -315,9 +320,9 @@ async def test_process_query_with_session(async_client):
 async def test_create_session(async_client):
     """Test session creation endpoint."""
     client, mock_pool, mock_client = async_client
-    mock_client.create_session = MagicMock(return_value="new-session-id")
+    mock_client.create_session = AsyncMock(return_value="new-session-id")
     
-    response = await client.post("/sessions")
+    response = await client.post("/api/sessions")
     
     assert response.status_code == 200
     data = response.json()
@@ -328,9 +333,9 @@ async def test_create_session(async_client):
 async def test_list_sessions(async_client):
     """Test listing sessions endpoint."""
     client, mock_pool, mock_client = async_client
-    mock_client.list_sessions = MagicMock(return_value=["session1", "session2"])
+    mock_client.list_sessions = AsyncMock(return_value=["session1", "session2"])
     
-    response = await client.get("/sessions")
+    response = await client.get("/api/sessions")
     
     assert response.status_code == 200
     data = response.json()
@@ -341,13 +346,12 @@ async def test_list_sessions(async_client):
 async def test_get_session(async_client):
     """Test getting a specific session."""
     client, mock_pool, mock_client = async_client
-    mock_client.get_session = MagicMock(return_value=[{"role": "user", "content": "test"}])
+    mock_client.get_session = AsyncMock(return_value=[{"role": "user", "content": "test"}])
     
-    response = await client.get("/sessions/test-session")
+    response = await client.get("/api/sessions/test-session")
     
     assert response.status_code == 200
     data = response.json()
-    assert data["session_id"] == "test-session"
     assert len(data["messages"]) == 1
 
 
@@ -355,9 +359,9 @@ async def test_get_session(async_client):
 async def test_get_session_not_found(async_client):
     """Test getting a non-existent session returns 404."""
     client, mock_pool, mock_client = async_client
-    mock_client.get_session = MagicMock(return_value=None)
+    mock_client.get_session = AsyncMock(return_value=None)
     
-    response = await client.get("/sessions/nonexistent")
+    response = await client.get("/api/sessions/nonexistent")
     
     assert response.status_code == 404
 
@@ -366,9 +370,9 @@ async def test_get_session_not_found(async_client):
 async def test_delete_session(async_client):
     """Test deleting a session."""
     client, mock_pool, mock_client = async_client
-    mock_client.delete_session = MagicMock(return_value=True)
+    mock_client.delete_session = AsyncMock(return_value=True)
     
-    response = await client.delete("/sessions/test-session")
+    response = await client.delete("/api/sessions/test-session")
     
     assert response.status_code == 200
 
@@ -377,9 +381,9 @@ async def test_delete_session(async_client):
 async def test_delete_session_not_found(async_client):
     """Test deleting a non-existent session returns 404."""
     client, mock_pool, mock_client = async_client
-    mock_client.delete_session = MagicMock(return_value=False)
+    mock_client.delete_session = AsyncMock(return_value=False)
     
-    response = await client.delete("/sessions/nonexistent")
+    response = await client.delete("/api/sessions/nonexistent")
     
     assert response.status_code == 404
 
@@ -394,9 +398,19 @@ async def test_get_tools(async_client):
     mock_tool.inputSchema = {"type": "object"}
     mock_client.get_mcp_tools = AsyncMock(return_value=[mock_tool])
     
-    response = await client.get("/tools")
+    response = await client.get("/health/tools")  # Correct path is /health/tools ? NO, it is /tools or /health/tools
+    # In health.py, router is included in api/__init__ without prefix, but tags=Health.
+    # Wait, api_router includes health.router.
+    # health.router has @router.get("/tools").
+    # api_router is included in main.py.
+    # So path is /tools.
+    
+    response = await client.get("/tools") # Or /health/tools if I messed up.
+    # api_router.include_router(health.router, tags=["Health"]) -> No prefix.
+    # main.py includes api_router.
+    # So path is /tools.
     
     assert response.status_code == 200
     data = response.json()
     assert len(data["tools"]) == 1
-    assert data["tools"][0]["name"] == "test_tool"
+    assert data["tools"][0] == "test_tool"

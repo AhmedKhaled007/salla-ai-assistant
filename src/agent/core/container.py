@@ -10,7 +10,7 @@ Example:
         return RedisTokenRepository(redis_client)
 """
 
-from .repositories import (
+from ..repositories import (
     TokenRepository,
     StateRepository,
     RateLimitRepository,
@@ -19,6 +19,8 @@ from .repositories import (
     InMemoryStateRepository,
     InMemoryRateLimitRepository,
     InMemoryConversationRepository,
+    SQLAlchemyTokenRepository,
+    SQLAlchemyConversationRepository,
 )
 
 
@@ -49,7 +51,7 @@ def get_token_repository() -> TokenRepository:
     """
     global _token_repo
     if _token_repo is None:
-        _token_repo = InMemoryTokenRepository()
+        _token_repo = SQLAlchemyTokenRepository()
     return _token_repo
 
 
@@ -85,7 +87,7 @@ def get_conversation_repository() -> ConversationRepository:
     """
     global _conversation_repo
     if _conversation_repo is None:
-        _conversation_repo = InMemoryConversationRepository()
+        _conversation_repo = SQLAlchemyConversationRepository()
     return _conversation_repo
 
 

@@ -1,9 +1,14 @@
+"""Application configuration using Pydantic Settings.
+
+All configuration is loaded from environment variables with sensible defaults.
+"""
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal
 from pathlib import Path
 
 
-# Get project root (assuming config is at src/agent/utils/config.py)
+# Get project root (assuming config is at src/agent/core/config.py)
 _PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 
 
