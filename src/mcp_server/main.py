@@ -3,7 +3,7 @@ import json
 from typing import Any
 from mcp.server.fastmcp import FastMCP, Context
 
-from .salla_client import salla_client, SallaAPIError, set_access_token
+from .salla_client import SallaClient, SallaAPIError
 
 
 # Initialize MCP server
@@ -22,11 +22,21 @@ def format_error(error: Exception) -> str:
     return f"Error: {str(error)}"
 
 
-async def extract_token_from_context(ctx: Context) -> None:
-    """Extract access token from request context and set for current request.
+def get_salla_client(ctx: Context) -> SallaClient:
+    """Extract access token from request context and create a per-request SallaClient.
     
     For HTTP transport, the token is passed in the Authorization header.
-    This function extracts it and sets it in the context variable for salla_client.
+    This function extracts it and creates a new client instance for this request,
+    ensuring no token leakage between concurrent requests.
+    
+    Args:
+        ctx: MCP Context object containing request information
+        
+    Returns:
+        SallaClient instance with the request's access token
+        
+    Raises:
+        ValueError: If no authorization token is found in the request
     """
     try:
         request = ctx.request_context.request
@@ -34,11 +44,12 @@ async def extract_token_from_context(ctx: Context) -> None:
             auth_header = request.headers.get("Authorization", "")
             if auth_header.startswith("Bearer "):
                 token = auth_header[7:]  # Remove "Bearer " prefix
-                set_access_token(token)
+                return SallaClient(access_token=token)
     except Exception as e:
-        # If not in HTTP context (stdio transport), ignore
-        print(f"Not in HTTP context: {e}")
-        pass
+        # If not in HTTP context (stdio transport), fall through to error
+        print(f"Error extracting token from context: {e}")
+    
+    raise ValueError("No authorization token found in request. Please authenticate first.")
 
 
 # =============================================================================
@@ -65,15 +76,15 @@ async def list_products(
     Returns:
         JSON string with list of products and pagination info
     """
-    await extract_token_from_context(ctx)
     try:
+        client = get_salla_client(ctx)
         params = {"page": page, "per_page": min(per_page, 60)}
         if keyword:
             params["keyword"] = keyword
         if status:
             params["status"] = status
         
-        result = await salla_client.get("/products", params=params)
+        result = await client.get("/products", params=params)
         return format_response(result)
     except Exception as e:
         return format_error(e)
@@ -90,9 +101,9 @@ async def get_product(ctx: Context, product_id: int) -> str:
     Returns:
         JSON string with product details including name, price, quantity, images, etc.
     """
-    await extract_token_from_context(ctx)
     try:
-        result = await salla_client.get(f"/products/{product_id}")
+        client = get_salla_client(ctx)
+        result = await client.get(f"/products/{product_id}")
         return format_response(result)
     except Exception as e:
         return format_error(e)
@@ -124,8 +135,8 @@ async def create_product(
     Returns:
         JSON string with created product details
     """
-    await extract_token_from_context(ctx)
     try:
+        client = get_salla_client(ctx)
         data = {
             "name": name,
             "price": price,
@@ -140,7 +151,7 @@ async def create_product(
         if sku:
             data["sku"] = sku
         
-        result = await salla_client.post("/products", data=data)
+        result = await client.post("/products", data=data)
         return format_response(result)
     except Exception as e:
         return format_error(e)
@@ -170,8 +181,8 @@ async def update_product(
     Returns:
         JSON string with updated product details
     """
-    await extract_token_from_context(ctx)
     try:
+        client = get_salla_client(ctx)
         data = {}
         if name:
             data["name"] = name
@@ -187,7 +198,7 @@ async def update_product(
         if not data:
             return "Error: No fields provided to update"
         
-        result = await salla_client.put(f"/products/{product_id}", data=data)
+        result = await client.put(f"/products/{product_id}", data=data)
         return format_response(result)
     except Exception as e:
         return format_error(e)
@@ -217,15 +228,15 @@ async def list_orders(
     Returns:
         JSON string with list of orders and pagination info
     """
-    await extract_token_from_context(ctx)
     try:
+        client = get_salla_client(ctx)
         params = {"page": page, "per_page": min(per_page, 60)}
         if status:
             params["status"] = status
         if keyword:
             params["keyword"] = keyword
         
-        result = await salla_client.get("/orders", params=params)
+        result = await client.get("/orders", params=params)
         return format_response(result)
     except Exception as e:
         return format_error(e)
@@ -242,9 +253,9 @@ async def get_order(ctx: Context, order_id: int) -> str:
     Returns:
         JSON string with order details including items, customer, shipping, payment info
     """
-    await extract_token_from_context(ctx)
     try:
-        result = await salla_client.get(f"/orders/{order_id}")
+        client = get_salla_client(ctx)
+        result = await client.get(f"/orders/{order_id}")
         return format_response(result)
     except Exception as e:
         return format_error(e)
@@ -272,8 +283,8 @@ async def create_order(
     Returns:
         JSON string with created order details
     """
-    await extract_token_from_context(ctx)
     try:
+        client = get_salla_client(ctx)
         data = {
             "customer": customer_id,
             "products": products,
@@ -285,7 +296,7 @@ async def create_order(
         if note:
             data["note"] = note
         
-        result = await salla_client.post("/orders", data=data)
+        result = await client.post("/orders", data=data)
         return format_response(result)
     except Exception as e:
         return format_error(e)
@@ -309,13 +320,13 @@ async def update_order_status(
     Returns:
         JSON string with updated order details
     """
-    await extract_token_from_context(ctx)
     try:
+        client = get_salla_client(ctx)
         data = {
             "status_id": status_id,
             "notify_customer": notify_customer,
         }
-        result = await salla_client.put(f"/orders/{order_id}/status", data=data)
+        result = await client.put(f"/orders/{order_id}/status", data=data)
         return format_response(result)
     except Exception as e:
         return format_error(e)
@@ -343,13 +354,13 @@ async def list_customers(
     Returns:
         JSON string with list of customers and pagination info
     """
-    await extract_token_from_context(ctx)
     try:
+        client = get_salla_client(ctx)
         params = {"page": page, "per_page": min(per_page, 60)}
         if keyword:
             params["keyword"] = keyword
         
-        result = await salla_client.get("/customers", params=params)
+        result = await client.get("/customers", params=params)
         return format_response(result)
     except Exception as e:
         return format_error(e)
@@ -366,9 +377,9 @@ async def get_customer(ctx: Context, customer_id: int) -> str:
     Returns:
         JSON string with customer details including name, contact info, addresses, orders
     """
-    await extract_token_from_context(ctx)
     try:
-        result = await salla_client.get(f"/customers/{customer_id}")
+        client = get_salla_client(ctx)
+        result = await client.get(f"/customers/{customer_id}")
         return format_response(result)
     except Exception as e:
         return format_error(e)
@@ -396,8 +407,8 @@ async def create_customer(
     Returns:
         JSON string with created customer details
     """
-    await extract_token_from_context(ctx)
     try:
+        client = get_salla_client(ctx)
         data = {
             "first_name": first_name,
         }
@@ -409,7 +420,7 @@ async def create_customer(
         if email:
             data["email"] = email
         
-        result = await salla_client.post("/customers", data=data)
+        result = await client.post("/customers", data=data)
         return format_response(result)
     except Exception as e:
         return format_error(e)
@@ -427,9 +438,9 @@ async def get_store_info(ctx: Context) -> str:
     Returns:
         JSON string with store details including name, domain, plan, currency, settings
     """
-    await extract_token_from_context(ctx)
     try:
-        result = await salla_client.get("/store/info")
+        client = get_salla_client(ctx)
+        result = await client.get("/store/info")
         return format_response(result)
     except Exception as e:
         return format_error(e)
@@ -472,4 +483,3 @@ if __name__ == "__main__":
     else:
         # Run with stdio for local development
         mcp.run()
-

@@ -1,5 +1,6 @@
 
 from fastapi import APIRouter, HTTPException, Depends, Header
+import uuid
 
 from ..models import OAuthCallbackRequest
 from ...services import (
@@ -84,7 +85,6 @@ async def oauth_callback_endpoint(request: OAuthCallbackRequest):
             user_id = user.id
 
     # 5. Create a session ID for the user (auth_session_id)
-    import uuid
     auth_session_id = str(uuid.uuid4())
     
     # 6. Store tokens with user_id

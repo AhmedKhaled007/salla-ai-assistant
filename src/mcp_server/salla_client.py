@@ -1,23 +1,9 @@
 """Salla API HTTP client wrapper."""
 from typing import Any, Optional
-from contextvars import ContextVar
+import asyncio
 import httpx
 
 from .config import settings
-
-
-# Context variable to store the current request's access token
-_current_access_token: ContextVar[Optional[str]] = ContextVar('current_access_token', default=None)
-
-
-def set_access_token(token: str):
-    """Set the access token for the current request context."""
-    _current_access_token.set(token)
-
-
-def get_access_token() -> Optional[str]:
-    """Get the access token for the current request context."""
-    return _current_access_token.get()
 
 
 class SallaAPIError(Exception):
@@ -29,58 +15,116 @@ class SallaAPIError(Exception):
         super().__init__(f"Salla API Error {status_code}: {message}")
 
 
+# HTTP connection limits for pooling
+_HTTP_LIMITS = httpx.Limits(
+    max_keepalive_connections=20,
+    max_connections=100,
+    keepalive_expiry=30.0,
+)
+
+
 class SallaClient:
-    """HTTP client for Salla API with per-request authentication."""
+    """HTTP client for Salla API with per-request authentication.
     
-    def __init__(self, access_token: Optional[str] = None):
-        """Initialize client with optional access token.
+    Each request should create its own SallaClient instance with the appropriate
+    access token to prevent token leakage between concurrent requests.
+    
+    Features:
+    - HTTP connection pooling for better performance
+    - Automatic retry with exponential backoff for transient failures
+    - Proper error handling for 4xx/5xx responses
+    """
+    
+    def __init__(self, access_token: str):
+        """Initialize client with access token.
         
         Args:
-            access_token: Salla API access token. If None, will try to get from
-                         context variable or fall back to settings.
+            access_token: Salla API access token (required)
         """
+        if not access_token:
+            raise ValueError("Access token is required")
         self.base_url = settings.salla_api_base_url
         self.timeout = settings.api_timeout
+        self.max_retries = settings.api_max_retries
         self._access_token = access_token
-    
-    @property
-    def access_token(self) -> str:
-        """Get access token from instance, context, or settings."""
-        if self._access_token:
-            return self._access_token
-        context_token = get_access_token()
-        if context_token:
-            return context_token
-        raise ValueError("No access token found")
     
     @property
     def headers(self) -> dict:
         """Get authentication headers."""
         return {
-            "Authorization": f"Bearer {self.access_token}",
+            "Authorization": f"Bearer {self._access_token}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
     
-    async def _request(self, method: str, endpoint: str, params: Optional[dict] = None, data: Optional[dict] = None) -> dict:
-        """Make HTTP request to Salla API."""
-        async with httpx.AsyncClient(
-            base_url=self.base_url,
-            headers=self.headers,
-            timeout=self.timeout,
-        ) as client:
-            if method == "GET":
-                response = await client.get(endpoint, params=params)
-            elif method == "POST":
-                response = await client.post(endpoint, json=data)
-            elif method == "PUT":
-                response = await client.put(endpoint, json=data)
-            elif method == "DELETE":
-                response = await client.delete(endpoint)
-            else:
-                raise ValueError(f"Unknown HTTP method: {method}")
-            
-            return self._handle_response(response)
+    def _is_retryable_error(self, status_code: int) -> bool:
+        """Check if an HTTP status code is retryable.
+        
+        5xx errors and certain specific errors are retryable.
+        4xx errors (client errors) are NOT retryable.
+        """
+        return status_code >= 500 or status_code in (408, 429)  # Timeout, Rate limited
+    
+    async def _request(
+        self, 
+        method: str, 
+        endpoint: str, 
+        params: Optional[dict] = None, 
+        data: Optional[dict] = None
+    ) -> dict:
+        """Make HTTP request to Salla API with retry logic.
+        
+        Retries on:
+        - 5xx server errors
+        - 408 Request Timeout
+        - 429 Too Many Requests
+        - Connection errors
+        - Timeout errors
+        
+        Does NOT retry on:
+        - 4xx client errors (except 408, 429)
+        """
+        last_exception = None
+        
+        for attempt in range(self.max_retries + 1):
+            try:
+                async with httpx.AsyncClient(
+                    base_url=self.base_url,
+                    headers=self.headers,
+                    timeout=self.timeout,
+                    limits=_HTTP_LIMITS,
+                ) as client:
+                    if method == "GET":
+                        response = await client.get(endpoint, params=params)
+                    elif method == "POST":
+                        response = await client.post(endpoint, json=data)
+                    elif method == "PUT":
+                        response = await client.put(endpoint, json=data)
+                    elif method == "DELETE":
+                        response = await client.delete(endpoint)
+                    else:
+                        raise ValueError(f"Unknown HTTP method: {method}")
+                    
+                    # Check if we should retry based on status code
+                    if self._is_retryable_error(response.status_code) and attempt < self.max_retries:
+                        wait_time = (2 ** attempt) * 0.5  # Exponential backoff: 0.5s, 1s, 2s
+                        await asyncio.sleep(wait_time)
+                        continue
+                    
+                    return self._handle_response(response)
+                    
+            except (httpx.ConnectError, httpx.TimeoutException, ConnectionError, OSError) as e:
+                last_exception = e
+                if attempt < self.max_retries:
+                    wait_time = (2 ** attempt) * 0.5  # Exponential backoff
+                    await asyncio.sleep(wait_time)
+                    continue
+                raise
+        
+        # Should not reach here, but just in case
+        if last_exception:
+            raise last_exception
+        raise RuntimeError("Unexpected error in HTTP request")
     
     def _handle_response(self, response: httpx.Response) -> dict:
         """Handle API response and raise errors if needed."""
@@ -110,7 +154,3 @@ class SallaClient:
     async def delete(self, endpoint: str) -> dict:
         """Make DELETE request to Salla API."""
         return await self._request("DELETE", endpoint)
-
-
-# Default client instance (uses context variable or settings for token)
-salla_client = SallaClient()
