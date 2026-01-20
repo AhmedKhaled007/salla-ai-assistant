@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     mcp_server_url: str = "http://localhost:8001/mcp"  # URL for HTTP transport
 
     # API Server Configuration
-    api_host: str = "0.0.0.0"
+    api_host: str = "127.0.0.1"
     api_port: int = 8000
 
     # Agent Configuration
