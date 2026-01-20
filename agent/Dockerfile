@@ -9,16 +9,15 @@ RUN pip install uv
 # Copy project definition first to leverage cache
 COPY pyproject.toml .
 
+# Copy source code
+COPY src/ src/
+
 # Install dependencies (system-wide since we are in a container)
 RUN uv pip install --system -e .
 
-# Create non-root user and setup permissions
-# We do this BEFORE switching users
 RUN useradd -m -u 1000 agent && \
     mkdir -p /app/conversations && \
     chown -R agent:agent /app
-
-COPY src/ src/
 
 # Expose the API port
 EXPOSE 8000

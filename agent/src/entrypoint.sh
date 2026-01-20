@@ -3,11 +3,7 @@ set -e
 
 # Run database migrations
 echo "Running database migrations..."
-# Alembic is configured to look for alembic.ini in the current directory or via -c
-# We run it from /app/src/agent where alembic.ini is located
-cd /app/src/agent
-alembic upgrade head
-cd /app
+alembic -c /app/src/agent/alembic.ini upgrade head
 
 # Start the application
 echo "Starting Salla AI Agent..."
