@@ -35,7 +35,7 @@ function ProtectedRoute({ children }) {
 // Main chat application content
 function ChatApp() {
   const { logout, merchantInfo, authSessionId } = useAuth();
-  const { messages, isLoading, conversationId, title, sendMessage, clearMessages, setMessages, setConversationId } = useChat(authSessionId);
+  const { messages, isLoading, conversationId, title, sendMessage, clearMessages, setMessages, setConversationId, setTitle } = useChat(authSessionId);
   const [conversations, setConversations] = useState([]);
   const [healthStatus, setHealthStatus] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -114,6 +114,7 @@ function ChatApp() {
     try {
       const data = await getConversation(id, authSessionId);
       if (data) {
+        setTitle(null);
         setConversationId(id);
         // Convert messages to frontend format
         const formattedMessages = data.messages
@@ -154,7 +155,7 @@ function ChatApp() {
     } catch (err) {
       showError('Failed to load conversation');
     }
-  }, [setMessages, setConversationId, showError, authSessionId]);
+  }, [setMessages, setConversationId, setTitle, showError, authSessionId]);
 
   // Delete a conversation
   const handleDeleteConversation = useCallback(async (id) => {
@@ -182,7 +183,7 @@ function ChatApp() {
   }, [logout, showSuccess]);
 
   return (
-    <div className="flex min-h-screen w-full bg-gradient-to-b from-accent to-bg-primary overflow-hidden">
+    <div className="flex h-screen w-full bg-gradient-to-b from-accent to-bg-primary overflow-hidden">
       <Sidebar
         onNewChat={clearMessages}
         conversations={conversations}

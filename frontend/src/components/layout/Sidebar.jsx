@@ -102,7 +102,7 @@ export function Sidebar({
                                 Conversations
                             </h3>
                             <div className="flex flex-col gap-1">
-                                {conversations.slice(0, 10).map((conv) => {
+                                {conversations.map((conv) => {
                                     const id = typeof conv === 'string' ? conv : conv.id;
                                     const title = typeof conv === 'string' ? null : conv.title;
 

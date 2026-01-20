@@ -160,6 +160,7 @@ export function useChat(authSessionId = null) {
         clearMessages,
         setMessages,
         setConversationId,
+        setTitle,
     };
 }
 

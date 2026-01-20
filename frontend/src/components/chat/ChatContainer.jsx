@@ -49,7 +49,7 @@ export function ChatContainer({ messages, isLoading, onSendMessage }) {
     }, [checkScrollPosition]);
 
     return (
-        <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
+        <div className="flex-1 flex flex-col h-full overflow-hidden relative">
             <div
                 ref={scrollContainerRef}
                 className="flex-1 overflow-y-auto p-8 pb-0 flex flex-col"
