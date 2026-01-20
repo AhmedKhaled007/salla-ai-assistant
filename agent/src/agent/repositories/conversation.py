@@ -9,7 +9,7 @@ import asyncio
 import json
 from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
-from ..core.database import get_db
+from ..core.database import AsyncSessionLocal
 from ..core.models import Conversation, Message
 
 
@@ -105,7 +105,7 @@ class SQLAlchemyConversationRepository(ConversationRepository):
     """SQLAlchemy-based conversation storage."""
 
     async def store(self, conversation_id: str, messages: list) -> None:
-        async for session in get_db():
+        async with AsyncSessionLocal() as session:
             # Check if conversation exists
             stmt = select(Conversation).where(Conversation.id == conversation_id)
             result = await session.execute(stmt)
@@ -146,7 +146,7 @@ class SQLAlchemyConversationRepository(ConversationRepository):
             await session.commit()
 
     async def create(self, conversation_id: str, user_id: int, title: Optional[str] = None) -> None:
-        async for session in get_db():
+        async with AsyncSessionLocal() as session:
             stmt = select(Conversation).where(Conversation.id == conversation_id)
             result = await session.execute(stmt)
             if not result.scalar_one_or_none():
@@ -155,7 +155,7 @@ class SQLAlchemyConversationRepository(ConversationRepository):
                 await session.commit()
 
     async def get(self, conversation_id: str) -> Optional[list]:
-        async for session in get_db():
+        async with AsyncSessionLocal() as session:
             stmt = select(Conversation).options(
                 selectinload(Conversation.messages)
             ).where(Conversation.id == conversation_id)
@@ -190,7 +190,7 @@ class SQLAlchemyConversationRepository(ConversationRepository):
             return messages
 
     async def delete(self, conversation_id: str) -> bool:
-        async for session in get_db():
+        async with AsyncSessionLocal() as session:
             stmt = select(Conversation).where(Conversation.id == conversation_id)
             result = await session.execute(stmt)
             conversation = result.scalar_one_or_none()
@@ -202,14 +202,14 @@ class SQLAlchemyConversationRepository(ConversationRepository):
             return False
 
     async def list_conversations(self) -> list[dict]:
-        async for session in get_db():
+        async with AsyncSessionLocal() as session:
             stmt = select(Conversation).order_by(Conversation.updated_at.desc())
             result = await session.execute(stmt)
             conversations = result.scalars().all()
             return [{"id": c.id, "title": c.title} for c in conversations]
 
     async def update_title(self, conversation_id: str, title: str) -> None:
-        async for session in get_db():
+        async with AsyncSessionLocal() as session:
             stmt = select(Conversation).where(Conversation.id == conversation_id)
             result = await session.execute(stmt)
             conversation = result.scalar_one_or_none()
@@ -220,7 +220,7 @@ class SQLAlchemyConversationRepository(ConversationRepository):
 
     async def verify_owner(self, conversation_id: str, user_id: int) -> bool:
         """Verify that the conversation belongs to the specified user."""
-        async for session in get_db():
+        async with AsyncSessionLocal() as session:
             stmt = select(Conversation).where(
                 Conversation.id == conversation_id,
                 Conversation.user_id == user_id
@@ -230,7 +230,7 @@ class SQLAlchemyConversationRepository(ConversationRepository):
 
     async def list_for_user(self, user_id: int) -> list[dict]:
         """List conversations for a specific user."""
-        async for session in get_db():
+        async with AsyncSessionLocal() as session:
             stmt = select(Conversation).where(
                 Conversation.user_id == user_id
             ).order_by(Conversation.updated_at.desc())

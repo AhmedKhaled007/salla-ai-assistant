@@ -8,7 +8,7 @@ from typing import Optional
 from datetime import datetime, timedelta, timezone
 import asyncio
 from sqlalchemy import select, delete
-from ..core.database import get_db
+from ..core.database import AsyncSessionLocal
 from ..core.models import AuthSession, User
 
 
@@ -20,7 +20,7 @@ class TokenRepository(ABC):
         self, session_id: str, tokens: dict, ttl_seconds: int = 3600, user_id: int | None = None
     ) -> None:
         """Store tokens with optional TTL.
-        
+
         Args:
             session_id: Unique session identifier
             tokens: Dict containing access_token, refresh_token, expires_at, merchant_info, user_id
@@ -31,7 +31,7 @@ class TokenRepository(ABC):
     @abstractmethod
     async def get(self, session_id: str) -> Optional[dict]:
         """Get tokens by session ID.
-        
+
         Returns:
             Token dict or None if not found/expired
         """
@@ -39,7 +39,7 @@ class TokenRepository(ABC):
     @abstractmethod
     async def delete(self, session_id: str) -> bool:
         """Delete tokens.
-        
+
         Returns:
             True if existed and was deleted
         """
@@ -56,7 +56,7 @@ class TokenRepository(ABC):
 
 class InMemoryTokenRepository(TokenRepository):
     """In-memory token storage with expiry tracking.
-    
+
     Suitable for development/single-instance deployments.
     For production with multiple instances, use RedisTokenRepository.
     """
@@ -80,12 +80,12 @@ class InMemoryTokenRepository(TokenRepository):
             data = self._store.get(session_id)
             if not data:
                 return None
-            
+
             # Check expiry
             if datetime.now(timezone.utc) > data.get("_expires_at", datetime.max.replace(tzinfo=timezone.utc)):
                 del self._store[session_id]
                 return None
-            
+
             # Return without internal fields
             return {k: v for k, v in data.items() if not k.startswith("_")}
 
@@ -106,14 +106,14 @@ class SQLAlchemyTokenRepository(TokenRepository):
     async def store(
         self, session_id: str, tokens: dict, ttl_seconds: int = 3600, user_id: int | None = None
     ) -> None:
-        async for session in get_db():
+        async with AsyncSessionLocal() as session:
             expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
-            
+
             # Check if exists
             stmt = select(AuthSession).where(AuthSession.session_id == session_id)
             result = await session.execute(stmt)
             auth_session = result.scalar_one_or_none()
-            
+
             if auth_session:
                 # Update
                 auth_session.access_token = tokens["access_token"]
@@ -135,42 +135,42 @@ class SQLAlchemyTokenRepository(TokenRepository):
                     user_id=user_id
                 )
                 session.add(auth_session)
-                
+
             await session.commit()
 
     async def get(self, session_id: str) -> Optional[dict]:
-        async for session in get_db():
+        async with AsyncSessionLocal() as session:
             stmt = select(AuthSession).where(AuthSession.session_id == session_id)
             result = await session.execute(stmt)
             auth_session = result.scalar_one_or_none()
-            
+
             if not auth_session:
                 return None
-            
+
             # Check expiry
             # Note: datetime in DB is naive or UTC depending on how it was stored.
             # models.py uses default=datetime.now(timezone.utc) but logic uses datetime.now() (system time).
             # We should be consistent.
-            # Let's assume consistent usage of naive or aware.  
+            # Let's assume consistent usage of naive or aware.
             # datetime.now() returns local time (naive). models used timezone.utc.
             # Mixing these is bad.
             # In store() I used datetime.now().
-            
-            # To be safe against timezone issues, let's fix imports first? 
+
+            # To be safe against timezone issues, let's fix imports first?
             # Or just use naive everywhere or UTC everywhere.
             # models.py used: default=lambda: datetime.now(timezone.utc)
             # here I used: datetime.now()
-            
-            # I will fix the store() implementation to use timezone.utc if possible, 
+
+            # I will fix the store() implementation to use timezone.utc if possible,
             # or just rely on what's passed.
-            
+
             if auth_session.expires_at < datetime.now(timezone.utc):
-                 # Expired
-                 # Lazily delete?
-                 await session.delete(auth_session)
-                 await session.commit()
-                 return None
-                 
+                # Expired
+                # Lazily delete?
+                await session.delete(auth_session)
+                await session.commit()
+                return None
+
             return {
                 "access_token": auth_session.access_token,
                 "refresh_token": auth_session.refresh_token,
@@ -181,11 +181,11 @@ class SQLAlchemyTokenRepository(TokenRepository):
             }
 
     async def delete(self, session_id: str) -> bool:
-        async for session in get_db():
+        async with AsyncSessionLocal() as session:
             stmt = select(AuthSession).where(AuthSession.session_id == session_id)
             result = await session.execute(stmt)
             auth_session = result.scalar_one_or_none()
-            
+
             if auth_session:
                 await session.delete(auth_session)
                 await session.commit()
