@@ -39,6 +39,14 @@ class ConversationRepository(ABC):
     async def update_title(self, conversation_id: str, title: str) -> None:
         """Update conversation title."""
 
+    @abstractmethod
+    async def verify_owner(self, conversation_id: str, user_id: int) -> bool:
+        """Verify conversation belongs to user."""
+
+    @abstractmethod
+    async def list_for_user(self, user_id: int) -> list[dict]:
+        """List conversations for a specific user."""
+
 
 # =============================================================================
 # IN-MEMORY IMPLEMENTATION
@@ -83,6 +91,15 @@ class InMemoryConversationRepository(ConversationRepository):
         # In-memory doesn't store titles currently, but we can ignore or add a metadata store
         pass
 
+    async def verify_owner(self, conversation_id: str, user_id: int) -> bool:
+        # In-memory doesn't track ownership, always return True for dev
+        return True
+
+    async def list_for_user(self, user_id: int) -> list[dict]:
+        # In-memory doesn't track user ownership
+        async with self._lock:
+            return [{"id": id, "title": None} for id in self._store.keys()]
+
 
 class SQLAlchemyConversationRepository(ConversationRepository):
     """SQLAlchemy-based conversation storage."""
@@ -93,22 +110,22 @@ class SQLAlchemyConversationRepository(ConversationRepository):
             stmt = select(Conversation).where(Conversation.id == conversation_id)
             result = await session.execute(stmt)
             conversation = result.scalar_one_or_none()
-            
+
             if not conversation:
                 conversation = Conversation(id=conversation_id)
                 session.add(conversation)
-                await session.flush() # ensure ID is available
-            
+                await session.flush()  # ensure ID is available
+
             # Delete existing messages to replace them (inefficient but simple for now)
             # A better approach would be to differential update, but messages don't have IDs in the input list.
             await session.execute(delete(Message).where(Message.conversation_id == conversation_id))
-            
+
             # Insert new messages
             for msg in messages:
                 # msg is a dict with 'role', 'content', and potentially 'tool_calls', etc.
                 role = msg.get("role")
                 content = msg.get("content")
-                
+
                 # Check for tool result messages (need to preserve tool_call_id/name)
                 # or assistant messages with tool_calls (content is None/empty)
                 if role == "tool" or not content:
@@ -117,7 +134,7 @@ class SQLAlchemyConversationRepository(ConversationRepository):
                 elif not isinstance(content, str):
                     # If content is a complex object, serialize it
                     content = json.dumps(content, ensure_ascii=False)
-                    
+
                 message = Message(
                     conversation_id=conversation_id,
                     role=msg.get("role"),
@@ -125,7 +142,7 @@ class SQLAlchemyConversationRepository(ConversationRepository):
                     # created_at automatically handled
                 )
                 session.add(message)
-            
+
             await session.commit()
 
     async def create(self, conversation_id: str, user_id: int, title: Optional[str] = None) -> None:
@@ -142,17 +159,17 @@ class SQLAlchemyConversationRepository(ConversationRepository):
             stmt = select(Conversation).options(
                 selectinload(Conversation.messages)
             ).where(Conversation.id == conversation_id)
-            
+
             result = await session.execute(stmt)
             conversation = result.scalar_one_or_none()
-            
+
             if not conversation:
                 return None
-                
+
             # Convert to list of dicts, sorted by created_at
             messages = []
             sorted_messages = sorted(conversation.messages, key=lambda m: m.created_at)
-            
+
             for msg in sorted_messages:
                 content = msg.content
                 # Try to parse JSON content (for tool call messages that were serialized)
@@ -164,12 +181,12 @@ class SQLAlchemyConversationRepository(ConversationRepository):
                         continue
                 except (json.JSONDecodeError, TypeError):
                     pass
-                    
+
                 messages.append({
                     "role": msg.role,
                     "content": content
                 })
-            
+
             return messages
 
     async def delete(self, conversation_id: str) -> bool:
@@ -177,7 +194,7 @@ class SQLAlchemyConversationRepository(ConversationRepository):
             stmt = select(Conversation).where(Conversation.id == conversation_id)
             result = await session.execute(stmt)
             conversation = result.scalar_one_or_none()
-            
+
             if conversation:
                 await session.delete(conversation)
                 await session.commit()
@@ -196,8 +213,27 @@ class SQLAlchemyConversationRepository(ConversationRepository):
             stmt = select(Conversation).where(Conversation.id == conversation_id)
             result = await session.execute(stmt)
             conversation = result.scalar_one_or_none()
-            
+
             if conversation:
                 conversation.title = title
                 await session.commit()
 
+    async def verify_owner(self, conversation_id: str, user_id: int) -> bool:
+        """Verify that the conversation belongs to the specified user."""
+        async for session in get_db():
+            stmt = select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.user_id == user_id
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none() is not None
+
+    async def list_for_user(self, user_id: int) -> list[dict]:
+        """List conversations for a specific user."""
+        async for session in get_db():
+            stmt = select(Conversation).where(
+                Conversation.user_id == user_id
+            ).order_by(Conversation.updated_at.desc())
+            result = await session.execute(stmt)
+            conversations = result.scalars().all()
+            return [{"id": c.id, "title": c.title} for c in conversations]

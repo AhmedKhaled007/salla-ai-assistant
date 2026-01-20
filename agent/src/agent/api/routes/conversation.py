@@ -9,52 +9,58 @@ from .auth import get_auth_session_id
 router = APIRouter()
 
 
+async def get_user_id(auth_session_id: str = Depends(get_auth_session_id)) -> int:
+    """Extract user_id from auth session, raising 401 if not found."""
+    tokens = await get_tokens(auth_session_id)
+    if not tokens or not tokens.get("user_id"):
+        raise HTTPException(status_code=401, detail="User identity not found for session")
+    return tokens.get("user_id")
 
 
 @router.post("/conversations")
-async def create_conversation(
-    auth_session_id: str = Depends(get_auth_session_id)
-):
+async def create_conversation(user_id: int = Depends(get_user_id)):
     """Create a new conversation."""
-    tokens = await get_tokens(auth_session_id)
-    if not tokens or not tokens.get("user_id"):
-        raise HTTPException(status_code=401, detail="User Identity not found for session")
-    
-    user_id = tokens.get("user_id")
     service = ConversationService()
     conversation_id = await service.create_conversation(user_id=user_id)
     return {"conversation_id": conversation_id}
 
 
 @router.get("/conversations")
-async def list_conversations(
-    auth_session_id: str = Depends(get_auth_session_id)
-):
-    """List all active conversation IDs."""
+async def list_conversations(user_id: int = Depends(get_user_id)):
+    """List all conversations for the authenticated user."""
     service = ConversationService()
-    conversations = await service.list_conversations()
+    conversations = await service.list_conversations_for_user(user_id)
     return {"conversations": conversations}
 
 
 @router.get("/conversations/{conversation_id}")
 async def get_conversation(
-    conversation_id: str, 
-    auth_session_id: str = Depends(get_auth_session_id)
+    conversation_id: str,
+    user_id: int = Depends(get_user_id)
 ):
     """Get messages for a specific conversation."""
     service = ConversationService()
+
+    # Verify ownership before returning data
+    if not await service.verify_ownership(conversation_id, user_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
     messages = await service.get_history(conversation_id)
-    # Service returns [] if not found or empty, which is acceptable for now.
     return {"messages": messages}
 
 
 @router.delete("/conversations/{conversation_id}")
 async def delete_conversation(
-    conversation_id: str, 
-    auth_session_id: str = Depends(get_auth_session_id)
+    conversation_id: str,
+    user_id: int = Depends(get_user_id)
 ):
     """Delete a conversation."""
     service = ConversationService()
+
+    # Verify ownership before deleting
+    if not await service.verify_ownership(conversation_id, user_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
     success = await service.delete_conversation(conversation_id)
     if not success:
         raise HTTPException(status_code=404, detail="Conversation not found")

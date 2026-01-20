@@ -3,9 +3,10 @@ from typing import Optional
 from ..core import get_conversation_repository, logger
 from .llm import call_llm
 
+
 class ConversationService:
     """Service for managing conversation lifecycle and history."""
-    
+
     def __init__(self):
         self._conversation_repo = get_conversation_repository()
 
@@ -37,6 +38,14 @@ class ConversationService:
         """Update the title of a conversation."""
         await self._conversation_repo.update_title(conversation_id, title)
 
+    async def verify_ownership(self, conversation_id: str, user_id: int) -> bool:
+        """Verify that the conversation belongs to the user."""
+        return await self._conversation_repo.verify_owner(conversation_id, user_id)
+
+    async def list_conversations_for_user(self, user_id: int) -> list[dict]:
+        """List conversations for a specific user."""
+        return await self._conversation_repo.list_for_user(user_id)
+
     async def generate_title(self, query: str) -> str:
         """Generate a short title for the conversation based on the query."""
         system_prompt = (
@@ -44,12 +53,12 @@ class ConversationService:
             "for a conversation based on the following user query. "
             "Do not use quotes or markdown, just the plain text title."
         )
-        
+
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": query}
         ]
-        
+
         try:
             response = await call_llm(messages)
             title = response.choices[0].message.content.strip()
