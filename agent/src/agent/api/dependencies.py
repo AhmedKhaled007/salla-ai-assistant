@@ -1,8 +1,4 @@
-"""FastAPI dependencies."""
+"""FastAPI dependencies.
 
-from fastapi import Header, HTTPException
-from typing import Optional
-
-from ..core import settings
-
-
+Common dependencies used across API routes.
+"""
