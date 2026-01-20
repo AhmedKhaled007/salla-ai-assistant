@@ -251,12 +251,12 @@ async def is_authenticated(session_id: str) -> bool:
     # Attempt refresh if expired but we have refresh token
     refresh_token = token_data.get("refresh_token")
     if refresh_token:
-        # We can't actually verify full auth without refreshing,
-        # but for simple check we assume if we have tokens they *might* be valid
-        # A more robust check would try to refresh here.
-        pass
+        # We assume if we have a refresh token, the session is essentially valid
+        # (it will be refreshed on next use via get_valid_access_token)
+        return True
 
-    return True
+    # Expired and no refresh token
+    return False
 
 
 async def get_valid_access_token(session_id: str) -> Optional[str]:
