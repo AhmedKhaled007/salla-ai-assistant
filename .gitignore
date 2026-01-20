@@ -5,10 +5,34 @@ build/
 dist/
 wheels/
 *.egg-info
+
+# IDE
 .idea
+.vscode
+
 # Virtual environments
 .venv
+
+# Environment files (service-specific)
 .env
-conversations
-.vscode
-salla_agent.db
+
+# Agent service
+agent/.env
+agent/conversations/
+agent/*.db
+agent/__pycache__/
+agent/.venv/
+
+# MCP server
+mcp-server/.env
+mcp-server/__pycache__/
+mcp-server/.venv/
+
+# Frontend
+frontend/.env
+frontend/node_modules/
+frontend/dist/
+
+# Legacy
+*.db
+conversations/

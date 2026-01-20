@@ -13,7 +13,14 @@ RUN pip install uv
 
 # Copy project files
 COPY pyproject.toml .
-COPY src/ src/
+COPY api/ api/
+COPY core/ core/
+COPY services/ services/
+COPY repositories/ repositories/
+COPY migrations/ migrations/
+COPY alembic.ini .
+COPY main.py .
+COPY __init__.py .
 
 # Install dependencies
 RUN uv pip install --system -e .
@@ -38,4 +45,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import httpx; httpx.get('http://localhost:8000/health')" || exit 1
 
 # Run the agent service
-CMD ["python", "-m", "src.agent.main"]
+CMD ["python", "-m", "main"]

@@ -9,8 +9,8 @@ from ..core import settings
 class QueryRequest(BaseModel):
     """Request model for query endpoint with validation."""
     query: str = Field(
-        ..., 
-        min_length=1, 
+        ...,
+        min_length=1,
         max_length=settings.max_query_length,
         description="The user's query text"
     )
@@ -23,11 +23,6 @@ class QueryRequest(BaseModel):
 class Message(BaseModel):
     role: str
     content: Any
-
-
-class ToolCall(BaseModel):
-    name: str
-    args: Dict[str, Any]
 
 
 class OAuthCallbackRequest(BaseModel):

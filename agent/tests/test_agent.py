@@ -4,10 +4,10 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
 
-from src.agent.services import MCPClient, MCPClientPool
-from src.agent.services.conversation import ConversationService
-from src.agent.main import app
-from src.agent.repositories import (
+from agent.services import MCPClient, MCPClientPool
+from agent.services.conversation import ConversationService
+from agent.main import app
+from agent.repositories import (
     InMemoryTokenRepository,
     InMemoryStateRepository,
     InMemoryRateLimitRepository,

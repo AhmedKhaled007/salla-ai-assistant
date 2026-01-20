@@ -7,14 +7,10 @@ services:
   # MCP Server - Salla API integration
   mcp-server:
     build:
-      context: .
-      dockerfile: Dockerfile.mcp
-    environment:
-      - SALLA_CLIENT_ID=${SALLA_CLIENT_ID}
-      - SALLA_CLIENT_SECRET=${SALLA_CLIENT_SECRET}
-      - SALLA_ACCESS_TOKEN=${SALLA_ACCESS_TOKEN}
-    volumes:
-      - ./src/mcp_server:/app/src/mcp_server
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    env_file:
+      - ./mcp-server/.env
     networks:
       - salla-network
     restart: unless-stopped
@@ -22,35 +18,21 @@ services:
   # Agent Service - LLM + MCP Client
   agent:
     build:
-      context: .
-      dockerfile: Dockerfile.agent
+      context: ./agent
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    environment:
-      - LLM_MODEL=${LLM_MODEL:-gemini/gemini-3-flash-preview}
-      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-1}
-      - API_HOST=0.0.0.0
-      - API_PORT=8000
-      - MAX_ITERATIONS=${MAX_ITERATIONS:-10}
-      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
-      - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-60}
-      - API_KEY_ENABLED=${API_KEY_ENABLED:-false}
-      - API_KEY=${API_KEY}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
-      # LLM API Keys
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    env_file:
+      - ./agent/.env
     volumes:
-      - ./conversations:/app/conversations
-      - ./src/agent:/app/src/agent
+      - agent-conversations:/app/conversations
     depends_on:
       - mcp-server
     networks:
       - salla-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -63,8 +45,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
-    environment:
-      - VITE_API_URL=http://localhost:8000
+    env_file:
+      - ./frontend/.env
     depends_on:
       - agent
     networks:
@@ -76,4 +58,4 @@ networks:
     driver: bridge
 
 volumes:
-  conversations:
+  agent-conversations:
