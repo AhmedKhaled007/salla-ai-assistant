@@ -13,7 +13,7 @@ import httpx
 
 from ..core import settings, logger
 from ..core import (
-    get_token_repository, 
+    get_token_repository,
     get_state_repository,
 )
 
@@ -35,10 +35,10 @@ def generate_state() -> str:
 
 def generate_auth_url(state: str) -> str:
     """Build the Salla OAuth authorization URL.
-    
+
     Args:
         state: CSRF protection state parameter
-        
+
     Returns:
         Full authorization URL to redirect user to
     """
@@ -49,11 +49,11 @@ def generate_auth_url(state: str) -> str:
         "scope": settings.salla_scopes,
         "state": state,
     }
-    
+
     # Use urllib to properly encode parameters
     base_url = settings.salla_oauth_base_url.rstrip("/")
     query_string = urllib.parse.urlencode(params)
-    
+
     auth_url = f"{base_url}/auth?{query_string}"
     logger.info(f"Generated OAuth URL with redirect_uri: {settings.salla_redirect_uri}")
     return auth_url
@@ -61,18 +61,18 @@ def generate_auth_url(state: str) -> str:
 
 async def exchange_code_for_tokens(code: str) -> Dict[str, Any]:
     """Exchange authorization code for access and refresh tokens.
-    
+
     Args:
         code: Authorization code from OAuth callback
-        
+
     Returns:
         Dict with access_token, refresh_token, expires_in, etc.
-        
+
     Raises:
         Exception: If token exchange fails
     """
     token_url = f"{settings.salla_oauth_base_url.rstrip('/')}/token"
-    
+
     payload = {
         "client_id": settings.salla_client_id,
         "client_secret": settings.salla_client_secret,
@@ -80,7 +80,7 @@ async def exchange_code_for_tokens(code: str) -> Dict[str, Any]:
         "code": code,
         "redirect_uri": settings.salla_redirect_uri,
     }
-    
+
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(token_url, data=payload)
@@ -97,18 +97,18 @@ async def exchange_code_for_tokens(code: str) -> Dict[str, Any]:
 
 async def refresh_access_token(refresh_token: str) -> Dict[str, Any]:
     """Refresh an expired access token.
-    
+
     Args:
         refresh_token: The refresh token
-        
+
     Returns:
         Dict with new access_token, refresh_token, expires_in, etc.
-        
+
     Raises:
         Exception: If token refresh fails
     """
     token_url = f"{settings.salla_oauth_base_url.rstrip('/')}/token"
-    
+
     payload = {
         "client_id": settings.salla_client_id,
         "client_secret": settings.salla_client_secret,
@@ -116,7 +116,7 @@ async def refresh_access_token(refresh_token: str) -> Dict[str, Any]:
         "refresh_token": refresh_token,
         "redirect_uri": settings.salla_redirect_uri,
     }
-    
+
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(token_url, data=payload)
@@ -133,20 +133,20 @@ async def refresh_access_token(refresh_token: str) -> Dict[str, Any]:
 
 async def get_merchant_info(access_token: str) -> Dict[str, Any]:
     """Fetch merchant/store information from Salla API.
-    
+
     Args:
         access_token: Valid Salla access token
-        
+
     Returns:
         Dict with merchant info (name, store_name, domain, etc.)
     """
-    user_info_url = "https://accounts.salla.sa/oauth2/user/info"
-    
+    user_info_url = f"{settings.salla_oauth_base_url.rstrip('/')}/user/info"
+
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-    
+
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get(user_info_url, headers=headers)
@@ -165,13 +165,13 @@ async def get_merchant_info(access_token: str) -> Dict[str, Any]:
 
 
 async def store_tokens(
-    session_id: str, 
-    tokens: Dict[str, Any], 
+    session_id: str,
+    tokens: Dict[str, Any],
     merchant_info: Optional[Dict[str, Any]] = None,
     user_id: Optional[int] = None
 ) -> None:
     """Store tokens for a session.
-    
+
     Args:
         session_id: Session identifier
         tokens: Token response from Salla (access_token, refresh_token, etc.)
@@ -179,10 +179,10 @@ async def store_tokens(
         user_id: Optional user ID to link session to user
     """
     repo = _token_repo
-    
+
     # Calculate expiry
     expires_in = tokens.get("expires_in", 3600)
-    
+
     # Always include merchant info if available
     token_data = {
         "access_token": tokens.get("access_token"),
@@ -190,13 +190,13 @@ async def store_tokens(
         "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat(),
         "scope": tokens.get("scope", ""),
     }
-    
+
     if merchant_info:
         token_data["merchant_info"] = merchant_info
-        
+
     await repo.store(
-        session_id, 
-        token_data, 
+        session_id,
+        token_data,
         ttl_seconds=expires_in + 86400,
         user_id=user_id
     )  # Keep for 24h past expiry
@@ -204,10 +204,10 @@ async def store_tokens(
 
 async def get_tokens(session_id: str) -> Optional[Dict[str, Any]]:
     """Get tokens for a session.
-    
+
     Args:
         session_id: Session identifier
-        
+
     Returns:
         Token data dict or None if not found
     """
@@ -217,10 +217,10 @@ async def get_tokens(session_id: str) -> Optional[Dict[str, Any]]:
 
 async def delete_tokens(session_id: str) -> bool:
     """Delete tokens for a session.
-    
+
     Args:
         session_id: Session identifier
-        
+
     Returns:
         True if tokens were deleted, False if session not found
     """
@@ -230,51 +230,51 @@ async def delete_tokens(session_id: str) -> bool:
 
 async def is_authenticated(session_id: str) -> bool:
     """Check if a session has valid tokens.
-    
+
     Args:
         session_id: Session identifier
-        
+
     Returns:
         True if session has non-expired tokens
     """
     token_data = await get_tokens(session_id)
     if not token_data:
         return False
-        
+
     # Check simple expiry first
     expires_at_str = token_data.get("expires_at")
     if expires_at_str:
         expires_at = datetime.fromisoformat(expires_at_str)
         if datetime.now(timezone.utc) < expires_at:
             return True
-            
+
     # Attempt refresh if expired but we have refresh token
     refresh_token = token_data.get("refresh_token")
     if refresh_token:
-        # We can't actually verify full auth without refreshing, 
+        # We can't actually verify full auth without refreshing,
         # but for simple check we assume if we have tokens they *might* be valid
         # A more robust check would try to refresh here.
         pass
-        
+
     return True
 
 
 async def get_valid_access_token(session_id: str) -> Optional[str]:
     """Get a valid access token for a session, refreshing if needed.
-    
+
     Args:
         session_id: Session identifier
-        
+
     Returns:
         Valid access token or None
     """
     token_data = await get_tokens(session_id)
     if not token_data:
         return None
-        
+
     access_token = token_data.get("access_token")
     expires_at_str = token_data.get("expires_at")
-    
+
     # Check if expired
     if expires_at_str:
         expires_at = datetime.fromisoformat(expires_at_str)
@@ -293,7 +293,7 @@ async def get_valid_access_token(session_id: str) -> Optional[str]:
                 except Exception as e:
                     logger.error(f"Failed to refresh token for session {session_id}: {e}")
                     return None
-    
+
     return access_token
 
 
@@ -310,7 +310,7 @@ async def store_state(state: str) -> None:
 
 async def validate_state(state: str) -> bool:
     """Validate and consume a state parameter.
-    
+
     Returns:
         True if state is valid and not expired
     """
