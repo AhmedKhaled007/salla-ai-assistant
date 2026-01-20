@@ -54,6 +54,7 @@ class Settings(BaseSettings):
 
     # Logging Configuration
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    log_file: str | None = None  # Optional file path for logging
     conversation_log_dir: str = "conversations"  # Directory for conversation logs
 
 
