@@ -4,7 +4,7 @@ Contains the abstract StateRepository interface and implementations.
 """
 
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 
 
@@ -18,7 +18,7 @@ class StateRepository(ABC):
     @abstractmethod
     async def validate_and_consume(self, state: str) -> bool:
         """Validate state exists and delete it atomically.
-        
+
         Returns:
             True if state was valid (existed and not expired)
         """
@@ -39,17 +39,17 @@ class InMemoryStateRepository(StateRepository):
     async def store(self, state: str, ttl_seconds: int = 600) -> None:
         async with self._lock:
             # Clean up expired states
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             expired = [s for s, exp in self._store.items() if now > exp]
             for s in expired:
                 del self._store[s]
-            
+
             self._store[state] = now + timedelta(seconds=ttl_seconds)
 
     async def validate_and_consume(self, state: str) -> bool:
         async with self._lock:
             if state not in self._store:
                 return False
-            
+
             expires_at = self._store.pop(state)
-            return datetime.now() <= expires_at
+            return datetime.now(timezone.utc) <= expires_at
