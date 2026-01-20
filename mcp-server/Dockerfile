@@ -13,10 +13,7 @@ RUN pip install uv
 
 # Copy project files
 COPY pyproject.toml .
-COPY config.py .
-COPY main.py .
-COPY salla_client.py .
-COPY __init__.py .
+COPY src/ src/
 
 # Install dependencies
 RUN uv pip install --system -e .
@@ -32,4 +29,4 @@ EXPOSE 8001
 ENV PYTHONUNBUFFERED=1
 
 # Run the MCP server
-CMD ["python", "-m", "main"]
+CMD ["python", "-m", "mcp_server.main"]
