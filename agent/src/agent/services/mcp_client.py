@@ -17,6 +17,7 @@ import os
 import uuid
 from datetime import datetime
 from httpx import ConnectError, TimeoutException as HttpxTimeoutException
+import httpx
 
 import aiofiles
 
@@ -239,6 +240,15 @@ class MCPClient:
 
             server_params = self.server_url
 
+            # Pre-check connectivity to avoid entering fragile context if server is down
+            try:
+                # Short timeout just to check if host is reachable
+                async with httpx.AsyncClient() as client:
+                    await client.head(server_params, timeout=2.0)
+            except Exception as e:
+                logger.warning(f"MCP server pre-check failed: {e}")
+                return False
+
             # Connect via SSE - this returns streams, not a session
             read_stream, write_stream, _ = await self.exit_stack.enter_async_context(
                 streamablehttp_client(server_params, headers=headers)
@@ -256,6 +266,13 @@ class MCPClient:
         except Exception as e:
             logger.error(f"Failed to connect to MCP server via HTTP: {e}")
             logger.error(traceback.format_exc())
+            # Clean up partial stack
+            try:
+                await self.exit_stack.aclose()
+            except BaseException as cleanup_error:
+                # Suppress errors during cleanup effectively to avoid crashing the app
+                # especially BaseExceptionGroup from anyio
+                logger.warning(f"Error during connection cleanup: {cleanup_error}")
             return False
 
     async def _connect_stdio(self, server_script_path: str, access_token: Optional[str] = None) -> bool:
@@ -289,6 +306,11 @@ class MCPClient:
 
         except Exception as e:
             logger.error(f"Failed to connect to MCP server via stdio: {e}")
+            # Clean up partial stack
+            try:
+                await self.exit_stack.aclose()
+            except BaseException as cleanup_error:
+                logger.warning(f"Error during stdio connection cleanup: {cleanup_error}")
             return False
 
     async def _load_tools(self):

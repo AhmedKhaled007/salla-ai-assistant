@@ -28,6 +28,9 @@ async def lifespan(app: FastAPI):
         server_script_path=settings.server_script_path
     )
 
+    # Store pool in app state immediately so cleanup runs even if init fails
+    app.state.pool = pool
+
     try:
         await pool.initialize()
 
@@ -37,12 +40,9 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("Successfully connected to MCP server")
 
-        # Store pool in app state for access in routes
-        app.state.pool = pool
-
     except Exception as e:
         logger.error(f"Failed to initialize pool: {e}")
-        # We might want to re-raise if critical, or allow running in degraded mode
+        # Allow running in degraded mode
 
     yield
 
