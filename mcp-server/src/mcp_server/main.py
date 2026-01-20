@@ -7,7 +7,8 @@ from .salla_client import SallaClient, SallaAPIError
 
 
 # Initialize MCP server
-mcp = FastMCP("salla-ecommerce")
+# Initialize MCP server
+mcp = FastMCP("salla-ecommerce", host="0.0.0.0")
 
 
 def format_response(data: Any) -> str:
@@ -24,17 +25,17 @@ def format_error(error: Exception) -> str:
 
 def get_salla_client(ctx: Context) -> SallaClient:
     """Extract access token from request context and create a per-request SallaClient.
-    
+
     For HTTP transport, the token is passed in the Authorization header.
     This function extracts it and creates a new client instance for this request,
     ensuring no token leakage between concurrent requests.
-    
+
     Args:
         ctx: MCP Context object containing request information
-        
+
     Returns:
         SallaClient instance with the request's access token
-        
+
     Raises:
         ValueError: If no authorization token is found in the request
     """
@@ -48,7 +49,7 @@ def get_salla_client(ctx: Context) -> SallaClient:
     except Exception as e:
         # If not in HTTP context (stdio transport), fall through to error
         print(f"Error extracting token from context: {e}")
-    
+
     raise ValueError("No authorization token found in request. Please authenticate first.")
 
 
@@ -66,13 +67,13 @@ async def list_products(
 ) -> str:
     """
     List all products in the Salla store with optional filtering.
-    
+
     Args:
         page: Page number for pagination (default: 1)
         per_page: Number of products per page, max 60 (default: 15)
         keyword: Search keyword to filter products by name
         status: Filter by product status (sale, out, hidden, deleted)
-    
+
     Returns:
         JSON string with list of products and pagination info
     """
@@ -83,7 +84,7 @@ async def list_products(
             params["keyword"] = keyword
         if status:
             params["status"] = status
-        
+
         result = await client.get("/products", params=params)
         return format_response(result)
     except Exception as e:
@@ -94,10 +95,10 @@ async def list_products(
 async def get_product(ctx: Context, product_id: int) -> str:
     """
     Get detailed information about a specific product.
-    
+
     Args:
         product_id: The unique ID of the product
-    
+
     Returns:
         JSON string with product details including name, price, quantity, images, etc.
     """
@@ -122,7 +123,7 @@ async def create_product(
 ) -> str:
     """
     Create a new product in the Salla store.
-    
+
     Args:
         name: Product name (required)
         price: Product selling price (required)
@@ -131,7 +132,7 @@ async def create_product(
         description: Product description
         cost_price: Cost price for profit calculation
         sku: Stock Keeping Unit identifier
-    
+
     Returns:
         JSON string with created product details
     """
@@ -150,7 +151,7 @@ async def create_product(
             data["cost_price"] = cost_price
         if sku:
             data["sku"] = sku
-        
+
         result = await client.post("/products", data=data)
         return format_response(result)
     except Exception as e:
@@ -169,7 +170,7 @@ async def update_product(
 ) -> str:
     """
     Update an existing product's details.
-    
+
     Args:
         product_id: The unique ID of the product to update (required)
         name: New product name
@@ -177,7 +178,7 @@ async def update_product(
         quantity: New available quantity (-1 means don't update)
         description: New product description
         status: New status - "sale", "out", "hidden"
-    
+
     Returns:
         JSON string with updated product details
     """
@@ -194,10 +195,10 @@ async def update_product(
             data["description"] = description
         if status:
             data["status"] = status
-        
+
         if not data:
             return "Error: No fields provided to update"
-        
+
         result = await client.put(f"/products/{product_id}", data=data)
         return format_response(result)
     except Exception as e:
@@ -218,13 +219,13 @@ async def list_orders(
 ) -> str:
     """
     List all orders in the Salla store with optional filtering.
-    
+
     Args:
         page: Page number for pagination (default: 1)
         per_page: Number of orders per page, max 60 (default: 15)
         status: Filter by order status (pending, completed, cancelled, refunded, etc.)
         keyword: Search by order ID, customer name, email, or phone
-    
+
     Returns:
         JSON string with list of orders and pagination info
     """
@@ -235,7 +236,7 @@ async def list_orders(
             params["status"] = status
         if keyword:
             params["keyword"] = keyword
-        
+
         result = await client.get("/orders", params=params)
         return format_response(result)
     except Exception as e:
@@ -246,10 +247,10 @@ async def list_orders(
 async def get_order(ctx: Context, order_id: int) -> str:
     """
     Get detailed information about a specific order.
-    
+
     Args:
         order_id: The unique ID of the order
-    
+
     Returns:
         JSON string with order details including items, customer, shipping, payment info
     """
@@ -272,14 +273,14 @@ async def create_order(
 ) -> str:
     """
     Create a new order in the Salla store.
-    
+
     Args:
         customer_id: ID of the customer placing the order (required)
         products: List of products with format [{"product_id": 123, "quantity": 2}, ...] (required)
         shipping_method: Shipping method ID
         payment_method: Payment method ID
         note: Order note/comment
-    
+
     Returns:
         JSON string with created order details
     """
@@ -295,7 +296,7 @@ async def create_order(
             data["payment_method"] = payment_method
         if note:
             data["note"] = note
-        
+
         result = await client.post("/orders", data=data)
         return format_response(result)
     except Exception as e:
@@ -311,12 +312,12 @@ async def update_order_status(
 ) -> str:
     """
     Update the status of an existing order.
-    
+
     Args:
         order_id: The unique ID of the order to update (required)
         status_id: The new status ID to set (required)
         notify_customer: Whether to notify customer about status change (default: True)
-    
+
     Returns:
         JSON string with updated order details
     """
@@ -345,12 +346,12 @@ async def list_customers(
 ) -> str:
     """
     List all customers in the Salla store with optional filtering.
-    
+
     Args:
         page: Page number for pagination (default: 1)
         per_page: Number of customers per page, max 60 (default: 15)
         keyword: Search by customer name, email, or mobile number
-    
+
     Returns:
         JSON string with list of customers and pagination info
     """
@@ -359,7 +360,7 @@ async def list_customers(
         params = {"page": page, "per_page": min(per_page, 60)}
         if keyword:
             params["keyword"] = keyword
-        
+
         result = await client.get("/customers", params=params)
         return format_response(result)
     except Exception as e:
@@ -370,10 +371,10 @@ async def list_customers(
 async def get_customer(ctx: Context, customer_id: int) -> str:
     """
     Get detailed information about a specific customer.
-    
+
     Args:
         customer_id: The unique ID of the customer
-    
+
     Returns:
         JSON string with customer details including name, contact info, addresses, orders
     """
@@ -396,14 +397,14 @@ async def create_customer(
 ) -> str:
     """
     Create a new customer in the Salla store.
-    
+
     Args:
         first_name: Customer's first name (required)
         last_name: Customer's last name
         mobile: Mobile phone number (without country code)
         email: Email address
         country_code: Country code for mobile, e.g., "SA" for Saudi Arabia (default: "SA")
-    
+
     Returns:
         JSON string with created customer details
     """
@@ -419,7 +420,7 @@ async def create_customer(
             data["mobile_code"] = country_code
         if email:
             data["email"] = email
-        
+
         result = await client.post("/customers", data=data)
         return format_response(result)
     except Exception as e:
@@ -434,7 +435,7 @@ async def create_customer(
 async def get_store_info(ctx: Context) -> str:
     """
     Get information about the Salla store.
-    
+
     Returns:
         JSON string with store details including name, domain, plan, currency, settings
     """
@@ -452,12 +453,12 @@ async def get_store_info(ctx: Context) -> str:
 
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Salla MCP Server")
     parser.add_argument(
-        "--transport", 
-        choices=["stdio", "http"], 
-        default="stdio",
+        "--transport",
+        choices=["stdio", "http"],
+        default="http",
         help="Transport to use (stdio for dev, http for production)"
     )
     parser.add_argument(
@@ -472,14 +473,15 @@ if __name__ == "__main__":
         help="Port for HTTP transport (default: 8001)"
     )
     args = parser.parse_args()
-    
+
     if args.transport == "http":
         # Run with Streamable HTTP transport using uvicorn
         import uvicorn
-        
+
         # Get the ASGI app from FastMCP
-        app = mcp.streamable_http_app()
-        uvicorn.run(app, host=args.host, port=args.port)
+        base_app = mcp.streamable_http_app()
+
+        uvicorn.run(base_app, host=args.host, port=args.port)
     else:
         # Run with stdio for local development
         mcp.run()

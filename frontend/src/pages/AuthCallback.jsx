@@ -19,6 +19,7 @@ export function AuthCallback() {
             processedRef.current = true;
 
             const code = searchParams.get('code');
+            const state = searchParams.get('state');
             const error = searchParams.get('error');
             const errorDescription = searchParams.get('error_description');
 
@@ -29,16 +30,16 @@ export function AuthCallback() {
                 return;
             }
 
-            // No code provided
-            if (!code) {
+            // No code or state provided
+            if (!code || !state) {
                 setStatus('error');
-                setErrorMessage('No authorization code received');
+                setErrorMessage(!code ? 'No authorization code received' : 'Missing security state parameter');
                 return;
             }
 
             // Exchange code for tokens
             try {
-                const success = await handleCallback(code);
+                const success = await handleCallback(code, state);
                 if (success) {
                     setStatus('success');
                     // Redirect to main app after short delay

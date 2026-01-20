@@ -10,7 +10,6 @@ RUN pip install uv
 COPY pyproject.toml .
 
 # Install dependencies (system-wide since we are in a container)
-# We do this BEFORE copying src code so this layer is cached unless dependencies change
 RUN uv pip install --system -e .
 
 # Create non-root user and setup permissions
@@ -19,7 +18,6 @@ RUN useradd -m -u 1000 agent && \
     mkdir -p /app/conversations && \
     chown -R agent:agent /app
 
-# Copy application code
 COPY src/ src/
 
 # Expose the API port
@@ -37,5 +35,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Switch to non-root user
 USER agent
 
-# Run the agent service
-CMD ["python", "-m", "agent.main"]
+# Start the agent service using the entrypoint script
+ENTRYPOINT ["/app/src/entrypoint.sh"]

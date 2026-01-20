@@ -13,39 +13,39 @@ from .api.middleware import rate_limit_middleware, setup_cors
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager with graceful shutdown.
-    
+
     Handles:
     - MCPClientPool initialization on startup
     - Cleanup of all pooled resources on shutdown
     """
     # Startup
     logger.info("Starting up Salla AI Agent...")
-    
+
     # Initialize connection pool
     pool = MCPClientPool(
         transport=settings.mcp_transport,
         server_url=settings.mcp_server_url,
         server_script_path=settings.server_script_path
     )
-    
+
     try:
         await pool.initialize()
-        
+
         # Check connection (warn but don't fail startup)
         if not await pool.ping():
             logger.warning("Default MCP client failed to connect to server")
         else:
             logger.info("Successfully connected to MCP server")
-            
+
         # Store pool in app state for access in routes
         app.state.pool = pool
-        
+
     except Exception as e:
         logger.error(f"Failed to initialize pool: {e}")
         # We might want to re-raise if critical, or allow running in degraded mode
-    
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down Salla AI Agent...")
     if hasattr(app.state, "pool"):
@@ -70,13 +70,3 @@ async def root():
         "status": "running",
         "docs_url": "/docs"
     })
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "src.agent.main:app", 
-        host=settings.api_host, 
-        port=settings.api_port, 
-        reload=True
-    )

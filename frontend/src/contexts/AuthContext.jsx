@@ -76,11 +76,11 @@ export function AuthProvider({ children }) {
     }, []);
 
     // Handle OAuth callback
-    const handleCallback = useCallback(async (code) => {
+    const handleCallback = useCallback(async (code, state) => {
         try {
             setIsLoading(true);
             setError(null);
-            const result = await exchangeCode(code);
+            const result = await exchangeCode(code, state);
 
             if (result.status === "success") {
                 setIsAuthenticated(true);

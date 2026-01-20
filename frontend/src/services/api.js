@@ -278,15 +278,16 @@ export async function getAuthUrl() {
 /**
  * Exchange OAuth authorization code for tokens
  * @param {string} code - The authorization code from Salla
+ * @param {string} state - The CSRF state parameter from Salla
  * @returns {Promise<{success: boolean, merchant_info?: object, error?: string}>}
  */
-export async function exchangeCode(code) {
+export async function exchangeCode(code, state) {
     const response = await fetch(`${API_BASE_URL}/auth/callback`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, state }),
     });
 
     if (!response.ok) {

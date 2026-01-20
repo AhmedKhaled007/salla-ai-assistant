@@ -15,6 +15,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    environment: Literal["development", "production", "test"] = "production"
     database_url: str
     # LLM Configuration
     llm_model: str = "gemini/gemini-3-flash-preview"

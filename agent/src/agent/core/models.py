@@ -16,7 +16,7 @@ class User(Base):
     email: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     store_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     domain: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     conversations: Mapped[List["Conversation"]] = relationship(back_populates="user")
     auth_sessions: Mapped[List["AuthSession"]] = relationship(back_populates="user")
@@ -28,8 +28,8 @@ class Conversation(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)  # session_id (uuid)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False, default="New Conversation")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(
         timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     user: Mapped["User"] = relationship(back_populates="conversations")
@@ -43,7 +43,7 @@ class Message(Base):
     conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id"))
     role: Mapped[str] = mapped_column(String)  # user, assistant
     content: Mapped[str] = mapped_column(Text)  # JSON string or text
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
 
@@ -55,11 +55,11 @@ class AuthSession(Base):
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     access_token: Mapped[str] = mapped_column(String)
     refresh_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     scope: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     merchant_info: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(
         timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     user: Mapped[Optional["User"]] = relationship(back_populates="auth_sessions")

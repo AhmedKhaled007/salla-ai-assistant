@@ -710,8 +710,8 @@ class MCPClient:
                     # Handle cases where msg might be an object
                     try:
                         serializable_messages.append(dict(msg))
-                except (TypeError, ValueError, AttributeError):
-                    serializable_messages.append(str(msg))
+                    except (TypeError, ValueError, AttributeError):
+                        serializable_messages.append(str(msg))
 
             async with aiofiles.open(filename, mode='w') as f:
                 await f.write(json.dumps(serializable_messages, indent=2, ensure_ascii=False))

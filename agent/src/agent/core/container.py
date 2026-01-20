@@ -48,7 +48,7 @@ _user_repo: UserRepository | None = None
 
 def get_token_repository() -> TokenRepository:
     """Get the token repository instance.
-    
+
     Returns:
         TokenRepository for storing OAuth tokens.
     """
@@ -60,7 +60,7 @@ def get_token_repository() -> TokenRepository:
 
 def get_state_repository() -> StateRepository:
     """Get the state repository instance.
-    
+
     Returns:
         StateRepository for CSRF state parameters.
     """
@@ -72,7 +72,7 @@ def get_state_repository() -> StateRepository:
 
 def get_rate_limit_repository() -> RateLimitRepository:
     """Get the rate limit repository instance.
-    
+
     Returns:
         RateLimitRepository for rate limiting.
     """
@@ -84,7 +84,7 @@ def get_rate_limit_repository() -> RateLimitRepository:
 
 def get_conversation_repository() -> ConversationRepository:
     """Get the conversation repository instance.
-    
+
     Returns:
         ConversationRepository for storing chat sessions.
     """
@@ -96,7 +96,7 @@ def get_conversation_repository() -> ConversationRepository:
 
 def get_user_repository() -> UserRepository:
     """Get the user repository instance.
-    
+
     Returns:
         UserRepository for managing user records.
     """
