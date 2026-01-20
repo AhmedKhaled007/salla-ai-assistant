@@ -1,7 +1,4 @@
-"""Conversation repository for chat session storage.
-
-Contains the abstract ConversationRepository interface and implementations.
-"""
+"""Conversation repository implementation."""
 
 from abc import ABC, abstractmethod
 from typing import Optional
@@ -14,26 +11,23 @@ from ..core.models import Conversation, Message
 
 
 class ConversationRepository(ABC):
-    """Repository for conversation sessions (optional persistence)."""
-
-    async def store(self, conversation_id: str, messages: list) -> None:
-        """Store conversation messages."""
+    """Abstract base class for conversation storage."""
 
     @abstractmethod
-    async def create(self, conversation_id: str, user_id: int, title: Optional[str] = None) -> None:
-        """Create a new conversation with user_id and optional title."""
+    async def store(self, conversation_id: str, messages: list) -> None:
+        """Store conversation history."""
 
     @abstractmethod
     async def get(self, conversation_id: str) -> Optional[list]:
-        """Get messages for conversation."""
+        """Get conversation history."""
 
     @abstractmethod
     async def delete(self, conversation_id: str) -> bool:
-        """Delete conversation. Returns True if existed."""
+        """Delete a conversation."""
 
     @abstractmethod
     async def list_conversations(self) -> list[dict]:
-        """List all conversations with IDs and titles."""
+        """List all conversations."""
 
     @abstractmethod
     async def update_title(self, conversation_id: str, title: str) -> None:
@@ -54,22 +48,15 @@ class ConversationRepository(ABC):
 
 
 class InMemoryConversationRepository(ConversationRepository):
-    """In-memory conversation storage."""
+    """In-memory storage for testing/dev."""
 
     def __init__(self):
-        self._store: dict[str, list] = {}
+        self._store = {}
         self._lock = asyncio.Lock()
 
     async def store(self, conversation_id: str, messages: list) -> None:
         async with self._lock:
             self._store[conversation_id] = messages
-
-    async def create(self, conversation_id: str, user_id: int, title: Optional[str] = None) -> None:
-        async with self._lock:
-            if conversation_id not in self._store:
-                self._store[conversation_id] = []
-                # Record user_id mapping separately if we were fully implementing in-memory structure
-                # For now just complying with interface
 
     async def get(self, conversation_id: str) -> Optional[list]:
         async with self._lock:
@@ -121,36 +108,11 @@ class SQLAlchemyConversationRepository(ConversationRepository):
             result = await session.execute(stmt)
             existing_count = result.scalar() or 0
 
-            should_full_replace = True
+            # 2. Strict Append: Only add messages that are new
+            # We assume history is immutable and strictly additive per user requirement.
             messages_to_add = []
-
-            # 2. Check for append scenario
             if len(messages) > existing_count:
-                if existing_count > 0:
-                    # Get last stored message to verify continuity
-                    last_msg_stmt = select(Message).where(
-                        Message.conversation_id == conversation_id
-                    ).order_by(Message.id.desc()).limit(1)
-                    last_msg_result = await session.execute(last_msg_stmt)
-                    last_msg = last_msg_result.scalar_one_or_none()
-
-                    if last_msg:
-                        # Compare against the message at the "seam"
-                        prev_input_msg = messages[existing_count - 1]
-
-                        # Loose comparison of role to prevent obvious desync
-                        if last_msg.role == prev_input_msg.get("role"):
-                            should_full_replace = False
-                            messages_to_add = messages[existing_count:]
-                else:
-                    # No existing messages, append all
-                    should_full_replace = False
-                    messages_to_add = messages
-
-            if should_full_replace:
-                # Fallback: Delete all and re-insert
-                await session.execute(delete(Message).where(Message.conversation_id == conversation_id))
-                messages_to_add = messages
+                messages_to_add = messages[existing_count:]
 
             # Insert new messages
             for msg in messages_to_add:
@@ -171,7 +133,6 @@ class SQLAlchemyConversationRepository(ConversationRepository):
                     conversation_id=conversation_id,
                     role=msg.get("role"),
                     content=content
-                    # created_at automatically handled
                 )
                 session.add(message)
 
