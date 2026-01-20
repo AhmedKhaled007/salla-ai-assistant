@@ -3,27 +3,24 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
 # Install uv for faster Python package management
 RUN pip install uv
 
-# Copy project files
+# Copy project definition first to leverage cache
 COPY pyproject.toml .
-COPY src/ src/
 
-# Install dependencies
+# Install dependencies (system-wide since we are in a container)
+# We do this BEFORE copying src code so this layer is cached unless dependencies change
 RUN uv pip install --system -e .
 
-# Create non-root user for security
-RUN useradd -m -u 1000 agent
-USER agent
+# Create non-root user and setup permissions
+# We do this BEFORE switching users
+RUN useradd -m -u 1000 agent && \
+    mkdir -p /app/conversations && \
+    chown -R agent:agent /app
 
-# Create conversations directory
-RUN mkdir -p /app/conversations
+# Copy application code
+COPY src/ src/
 
 # Expose the API port
 EXPOSE 8000
@@ -36,6 +33,9 @@ ENV API_PORT=8000
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import httpx; httpx.get('http://localhost:8000/health')" || exit 1
+
+# Switch to non-root user
+USER agent
 
 # Run the agent service
 CMD ["python", "-m", "agent.main"]

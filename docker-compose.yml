@@ -28,6 +28,7 @@ services:
       - agent-conversations:/app/conversations
     depends_on:
       - mcp-server
+      - db
     networks:
       - salla-network
     restart: unless-stopped
@@ -38,20 +39,46 @@ services:
       retries: 3
       start_period: 10s
 
-  # Frontend - React/Vite UI
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: salla_user
+      POSTGRES_PASSWORD: salla_password
+      POSTGRES_DB: salla_agent
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - salla-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U salla_user -d salla_agent" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Frontend - React/Vite UI (Nginx)
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # Vite requires env vars at build time
+        VITE_API_URL: http://agent:8000
     ports:
       - "3000:3000"
-    env_file:
-      - ./frontend/.env
-    depends_on:
-      - agent
+
     networks:
       - salla-network
     restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 networks:
   salla-network:
@@ -59,3 +86,4 @@ networks:
 
 volumes:
   agent-conversations:
+  postgres_data:
