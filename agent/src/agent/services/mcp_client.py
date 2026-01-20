@@ -130,6 +130,9 @@ class MCPClient:
                 # Non-retryable errors (4xx client errors, validation errors, etc.)
                 raise
 
+        # Should not reach here, but raise if somehow loop exits without returning/raising
+        raise RuntimeError(f"Tool {tool_name} failed after {max_retries + 1} attempts")
+
     def is_connected(self) -> bool:
         """Check if the MCP server connection is active."""
         return self.session is not None
