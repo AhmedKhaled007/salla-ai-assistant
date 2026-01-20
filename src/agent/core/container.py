@@ -94,20 +94,6 @@ def get_conversation_repository() -> ConversationRepository:
     return _conversation_repo
 
 
-# =============================================================================
-# RESET FUNCTIONS (for testing)
-# =============================================================================
-
-
-def reset_all_repositories() -> None:
-    """Reset all repository singletons. Used for testing."""
-    global _token_repo, _state_repo, _rate_limit_repo, _conversation_repo
-    _token_repo = None
-    _state_repo = None
-    _rate_limit_repo = None
-    _conversation_repo = None
-    _user_repo = None
-
 def get_user_repository() -> UserRepository:
     """Get the user repository instance.
     
