@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 import asyncio
 import json
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.orm import selectinload
 from ..core.database import AsyncSessionLocal
 from ..core.models import Conversation, Message
@@ -116,12 +116,44 @@ class SQLAlchemyConversationRepository(ConversationRepository):
                 session.add(conversation)
                 await session.flush()  # ensure ID is available
 
-            # Delete existing messages to replace them (inefficient but simple for now)
-            # A better approach would be to differential update, but messages don't have IDs in the input list.
-            await session.execute(delete(Message).where(Message.conversation_id == conversation_id))
+            # 1. Get existing message count
+            stmt = select(func.count()).where(Message.conversation_id == conversation_id)
+            result = await session.execute(stmt)
+            existing_count = result.scalar() or 0
+
+            should_full_replace = True
+            messages_to_add = []
+
+            # 2. Check for append scenario
+            if len(messages) > existing_count:
+                if existing_count > 0:
+                    # Get last stored message to verify continuity
+                    last_msg_stmt = select(Message).where(
+                        Message.conversation_id == conversation_id
+                    ).order_by(Message.id.desc()).limit(1)
+                    last_msg_result = await session.execute(last_msg_stmt)
+                    last_msg = last_msg_result.scalar_one_or_none()
+
+                    if last_msg:
+                        # Compare against the message at the "seam"
+                        prev_input_msg = messages[existing_count - 1]
+
+                        # Loose comparison of role to prevent obvious desync
+                        if last_msg.role == prev_input_msg.get("role"):
+                            should_full_replace = False
+                            messages_to_add = messages[existing_count:]
+                else:
+                    # No existing messages, append all
+                    should_full_replace = False
+                    messages_to_add = messages
+
+            if should_full_replace:
+                # Fallback: Delete all and re-insert
+                await session.execute(delete(Message).where(Message.conversation_id == conversation_id))
+                messages_to_add = messages
 
             # Insert new messages
-            for msg in messages:
+            for msg in messages_to_add:
                 # msg is a dict with 'role', 'content', and potentially 'tool_calls', etc.
                 role = msg.get("role")
                 content = msg.get("content")
