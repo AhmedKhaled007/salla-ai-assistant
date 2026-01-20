@@ -1,8 +1,3 @@
-# Docker Compose for Salla Agent Full Stack
-# Usage: docker-compose up -d
-
-version: '3.8'
-
 services:
   # MCP Server - Salla API integration
   mcp-server:
@@ -14,6 +9,9 @@ services:
     networks:
       - salla-network
     restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
 
   # Agent Service - LLM + MCP Client
   agent:
