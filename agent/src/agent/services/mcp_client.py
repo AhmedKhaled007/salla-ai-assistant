@@ -517,6 +517,7 @@ class MCPClient:
 
         if not messages:
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            title = None
             try:
                 # Generate title for new conversations
                 title = await self.conversation_service.generate_title(query)
