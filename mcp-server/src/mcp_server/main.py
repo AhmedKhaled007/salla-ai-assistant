@@ -1,5 +1,6 @@
 """Salla MCP Server - Core e-commerce tools for AI agents."""
 import json
+import logging
 from typing import Any
 from mcp.server.fastmcp import FastMCP, Context
 
@@ -7,6 +8,10 @@ from .salla_client import SallaClient, SallaAPIError
 
 
 # Initialize MCP server
+# Initialize logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Initialize MCP server
 mcp = FastMCP("salla-ecommerce", host="0.0.0.0")
 
@@ -43,12 +48,12 @@ def get_salla_client(ctx: Context) -> SallaClient:
         request = ctx.request_context.request
         if request:
             auth_header = request.headers.get("Authorization", "")
-            if auth_header.startswith("Bearer "):
+            if auth_header.lower().startswith("bearer "):
                 token = auth_header[7:]  # Remove "Bearer " prefix
                 return SallaClient(access_token=token)
     except Exception as e:
         # If not in HTTP context (stdio transport), fall through to error
-        print(f"Error extracting token from context: {e}")
+        logger.error(f"Error extracting token from context: {e}")
 
     raise ValueError("No authorization token found in request. Please authenticate first.")
 
@@ -78,6 +83,11 @@ async def list_products(
         JSON string with list of products and pagination info
     """
     try:
+        if page < 1:
+            return "Error: page must be greater than 0"
+        if per_page < 1:
+            return "Error: per_page must be greater than 0"
+
         client = get_salla_client(ctx)
         params = {"page": page, "per_page": min(per_page, 60)}
         if keyword:
@@ -230,6 +240,11 @@ async def list_orders(
         JSON string with list of orders and pagination info
     """
     try:
+        if page < 1:
+            return "Error: page must be greater than 0"
+        if per_page < 1:
+            return "Error: per_page must be greater than 0"
+
         client = get_salla_client(ctx)
         params = {"page": page, "per_page": min(per_page, 60)}
         if status:
@@ -356,6 +371,11 @@ async def list_customers(
         JSON string with list of customers and pagination info
     """
     try:
+        if page < 1:
+            return "Error: page must be greater than 0"
+        if per_page < 1:
+            return "Error: per_page must be greater than 0"
+
         client = get_salla_client(ctx)
         params = {"page": page, "per_page": min(per_page, 60)}
         if keyword:
