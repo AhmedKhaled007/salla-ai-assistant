@@ -1,12 +1,19 @@
-from fastapi import Request, HTTPException, Depends
+from fastapi import Request, HTTPException, Depends, Header
 from ..services.mcp_client import MCPClient
 from ..services.auth_service import get_tokens
-from .routes.auth import get_auth_session_id
 
 
 def get_mcp_client(request: Request) -> MCPClient:
     """Dependency to get the singleton MCPClient from app state."""
     return request.app.state.mcp_client
+
+
+async def get_auth_session_id(
+    x_auth_session_id: str | None = Header(default=None, alias="X-Auth-Session-Id")
+) -> str:
+    if not x_auth_session_id:
+        raise HTTPException(status_code=401, detail="Missing X-Auth-Session-Id header")
+    return x_auth_session_id
 
 
 async def get_user_id(auth_session_id: str = Depends(get_auth_session_id)) -> int:

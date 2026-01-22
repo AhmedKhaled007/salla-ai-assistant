@@ -2,8 +2,7 @@ from typing import Dict, Any
 from fastapi import APIRouter, Depends, Request
 
 from ...services import MCPClient, get_valid_access_token
-from ..dependencies import get_mcp_client
-from .auth import get_auth_session_id
+from ..dependencies import get_mcp_client, get_auth_session_id
 
 router = APIRouter()
 

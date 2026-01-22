@@ -1,8 +1,7 @@
 from ...services import ConversationService, get_tokens
 from ..dependencies import get_user_id
-from .auth import get_auth_session_id
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi import Request
+
 router = APIRouter()
 
 

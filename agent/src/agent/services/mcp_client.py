@@ -204,6 +204,8 @@ class MCPClient:
 
     async def _log_conversation(self, conversation_id: str, messages: list):
         """Save conversation to a JSON file asynchronously."""
+        if not settings.conversation_log_enabled:
+            return
         try:
             log_dir = settings.conversation_log_dir
             if not os.path.exists(log_dir):

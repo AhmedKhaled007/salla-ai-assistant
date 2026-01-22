@@ -6,8 +6,7 @@ from fastapi import Request
 
 from ..models import QueryRequest
 from ...services import MCPClient, get_valid_access_token
-from ..dependencies import get_mcp_client, get_user_id
-from .auth import get_auth_session_id
+from ..dependencies import get_mcp_client, get_user_id, get_auth_session_id
 
 router = APIRouter()
 

@@ -1,7 +1,7 @@
 
 from fastapi import APIRouter, HTTPException, Depends, Header
 import uuid
-
+from ..dependencies import get_auth_session_id
 from ..models import OAuthCallbackRequest
 from ...services import (
     generate_state,
@@ -18,21 +18,6 @@ from ...services import (
 from ...core import get_user_repository
 
 router = APIRouter()
-
-
-async def get_auth_session_id(
-    x_auth_session_id: str | None = Header(default=None, alias="X-Auth-Session-Id")
-) -> str | None:
-    if not x_auth_session_id:
-        raise HTTPException(status_code=401, detail="Missing X-Auth-Session-Id header")
-    return x_auth_session_id
-
-
-async def get_optional_auth_session_id(
-    x_auth_session_id: str | None = Header(default=None, alias="X-Auth-Session-Id")
-) -> str | None:
-    """Optional auth - returns None if header is missing instead of raising."""
-    return x_auth_session_id
 
 
 @router.get("/url")
@@ -105,11 +90,9 @@ async def oauth_callback_endpoint(request: OAuthCallbackRequest):
 
 @router.get("/status")
 async def get_auth_status(
-    auth_session_id: str | None = Depends(get_optional_auth_session_id)
+    auth_session_id: str = Depends(get_auth_session_id)
 ):
     """Check authentication status using header."""
-    if not auth_session_id:
-        return {"authenticated": False}
 
     authenticated = await is_authenticated(auth_session_id)
     if not authenticated:
@@ -126,11 +109,9 @@ async def get_auth_status(
 
 @router.post("/logout")
 async def logout(
-    auth_session_id: str | None = Depends(get_auth_session_id)
+    auth_session_id: str = Depends(get_auth_session_id)
 ):
     """Logout endpoint to clear session tokens."""
-    if not auth_session_id:
-        return {"status": "success"}
 
     success = await delete_tokens(auth_session_id)
     return {"status": "success" if success else "not_found"}

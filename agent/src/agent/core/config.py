@@ -8,10 +8,6 @@ from typing import Literal
 from pathlib import Path
 
 
-# Get project root (assuming config is at src/agent/core/config.py)
-_PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -20,11 +16,11 @@ class Settings(BaseSettings):
     # LLM Configuration
     llm_model: str = "gemini/gemini-3-flash-preview"
     llm_temperature: float = 1
-    llm_max_retries: int = 1  # Max retry attempts for LLM calls
+    llm_max_retries: int = 3  # Max retry attempts for LLM calls
     llm_retry_delay: float = 1.0  # Base delay in seconds (exponential backoff)
 
     # MCP Server Configuration
-    server_script_path: str = str(_PROJECT_ROOT / "src" / "mcp_server" / "main.py")
+    server_script_path: str | None = None
     mcp_transport: str = "http"  # Transport type: 'stdio' or 'http'
     mcp_server_url: str = "http://localhost:8001/mcp"  # URL for HTTP transport
 
@@ -35,7 +31,7 @@ class Settings(BaseSettings):
     # Agent Configuration
     max_iterations: int = 10  # Max tool-calling iterations per query
     max_query_length: int = 10000  # Max characters in query (prevent abuse)
-    llm_max_tokens: int | None = 4096
+    llm_max_tokens: int | None = 8192
     tool_timeout: float = 30.0  # Timeout in seconds for tool execution
 
     # CORS Configuration
@@ -43,7 +39,7 @@ class Settings(BaseSettings):
 
     # Rate Limiting Configuration
     rate_limit_enabled: bool = True
-    rate_limit_requests: int = 60  # Max requests per window
+    rate_limit_requests: int = 30  # Max requests per window
     rate_limit_window: int = 60  # Window size in seconds
 
     # Salla OAuth Configuration
@@ -55,8 +51,10 @@ class Settings(BaseSettings):
 
     # Logging Configuration
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
-    log_file: str | None = None  # Optional file path for logging
-    conversation_log_dir: str = "conversations"  # Directory for conversation logs
+    log_file: str | None = None
+    # Conversation Logging Configuration
+    conversation_log_enabled: bool = False
+    conversation_log_dir: str = "conversations"
 
 
 # Global settings instance
