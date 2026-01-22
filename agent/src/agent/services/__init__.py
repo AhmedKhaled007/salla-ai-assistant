@@ -5,7 +5,6 @@ including the MCP client, authentication service, and LLM interactions.
 """
 
 from .mcp_client import MCPClient
-from .client_pool import MCPClientPool
 from .conversation import ConversationService
 from .auth_service import (
     generate_auth_url,
@@ -25,7 +24,6 @@ from .prompts import SYSTEM_PROMPT
 
 __all__ = [
     "MCPClient",
-    "MCPClientPool",
     "ConversationService",
     "generate_auth_url",
     "exchange_code_for_tokens",

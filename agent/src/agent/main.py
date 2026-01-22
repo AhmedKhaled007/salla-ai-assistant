@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from .core import settings, logger
-from .services import MCPClientPool
+from .services import MCPClient
 from .api import api_router
 from .api.middleware import rate_limit_middleware, setup_cors
 
@@ -15,28 +15,25 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager with graceful shutdown.
 
     Handles:
-    - MCPClientPool initialization on startup
-    - Cleanup of all pooled resources on shutdown
+    - MCPClient initialization on startup
+    - Cleanup of resources on shutdown
     """
     # Startup
     logger.info("Starting up Salla AI Agent...")
 
-    # Initialize connection pool
-    pool = MCPClientPool(
+    # Initialize single MCP client
+    mcp_client = MCPClient(
         transport=settings.mcp_transport,
-        server_url=settings.mcp_server_url,
-        server_script_path=settings.server_script_path
+        server_url=settings.mcp_server_url
     )
 
-    # Store pool in app state immediately so cleanup runs even if init fails
-    app.state.pool = pool
+    # Store in app state
+    app.state.mcp_client = mcp_client
 
     try:
-        await pool.initialize()
-
-        # Check connection (warn but don't fail startup)
-        if not await pool.ping():
-            logger.warning("Default MCP client failed to connect to server")
+        # Check connection
+        if not await mcp_client.ping():
+            logger.warning("MCP client failed to connect to server")
         else:
             logger.info("Successfully connected to MCP server")
 
@@ -48,8 +45,8 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down Salla AI Agent...")
-    if hasattr(app.state, "pool"):
-        await app.state.pool.cleanup_all()
+    if hasattr(app.state, "mcp_client"):
+        await app.state.mcp_client.cleanup()
 
 
 app = FastAPI(title="Salla AI Agent API", lifespan=lifespan)
