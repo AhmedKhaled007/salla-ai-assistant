@@ -49,10 +49,8 @@ class MCPClient:
         self.transport = transport
         self.server_url = server_url or settings.mcp_server_url
 
-        # Internal cache for user-specific sessions: {token_hash: ClientSession}
-        self._sessions: dict[str, ClientSession] = {}
-        # Exit stack to manage lifecycle of sessions
-        self.exit_stack = AsyncExitStack()
+        # Internal cache for user-specific sessions: {token_hash: (ClientSession, AsyncExitStack)}
+        self._sessions: dict[str, tuple[ClientSession, AsyncExitStack]] = {}
 
         # Cached tool definitions (global)
         self._cached_tools: Optional[list] = None
@@ -60,6 +58,24 @@ class MCPClient:
 
         # Service for conversation persistence
         self.conversation_service = ConversationService()
+
+    async def _remove_session(self, token: Optional[str] = None):
+        """Remove a session from the cache."""
+        token = token or token_context.get()
+        token_hash = self._get_token_hash(token)
+        if token_hash in self._sessions:
+            try:
+                session, stack = self._sessions.pop(token_hash)
+                logger.info(f"Removing session for token hash: {token_hash[:8]}")
+                # Add timeout to prevent hanging on cleanup
+                try:
+                    await asyncio.wait_for(stack.aclose(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.warning(f"Timeout while closing session for {token_hash[:8]}")
+                except Exception as e:
+                    logger.warning(f"Error closing session for {token_hash[:8]}: {e}")
+            except Exception as e:
+                logger.error(f"Error removing session: {e}")
 
     def _get_token_hash(self, token: Optional[str]) -> str:
         """Hash token to use as session key."""
@@ -73,7 +89,7 @@ class MCPClient:
         token_hash = self._get_token_hash(token)
 
         if token_hash in self._sessions:
-            return self._sessions[token_hash]
+            return self._sessions[token_hash][0]
 
         logger.info(f"Establishing new MCP session for token hash: {token_hash[:8]}...")
 
@@ -90,16 +106,26 @@ class MCPClient:
                 logger.warning(f"MCP server connectivity check failed: {e}")
                 # We still try to connect so streamablehttp_client can handle it properly if it was transient
 
-            read_stream, write_stream, _ = await self.exit_stack.enter_async_context(
-                streamablehttp_client(self.server_url, headers=headers)
-            )
+            # Create a dedicated exit stack for this session
+            stack = AsyncExitStack()
 
-            session = await self.exit_stack.enter_async_context(
-                ClientSession(read_stream, write_stream)
-            )
+            try:
+                read_stream, write_stream, _ = await stack.enter_async_context(
+                    streamablehttp_client(self.server_url, headers=headers)
+                )
 
-            await session.initialize()
+                session = await stack.enter_async_context(
+                    ClientSession(read_stream, write_stream)
+                )
+
+                await session.initialize()
+            except Exception:
+                await stack.aclose()
+                raise
         else:
+            # Create a dedicated exit stack for this session
+            stack = AsyncExitStack()
+
             server_path = settings.server_script_path
             env = os.environ.copy()
             if token:
@@ -111,10 +137,14 @@ class MCPClient:
                 env=env
             )
 
-            session = await self.exit_stack.enter_async_context(stdio_client(server_params))
-            await session.initialize()
+            try:
+                session = await stack.enter_async_context(stdio_client(server_params))
+                await session.initialize()
+            except Exception:
+                await stack.aclose()
+                raise
 
-        self._sessions[token_hash] = session
+        self._sessions[token_hash] = (session, stack)
 
         # Ensure tools are loaded into global cache at least once
         # using the first available session
@@ -130,10 +160,9 @@ class MCPClient:
         max_retries: int = 2,
     ) -> str:
         """Execute a tool call using the current context's session."""
-        session = await self.get_session()
-
         for attempt in range(max_retries + 1):
             try:
+                session = await self.get_session()
                 result = await asyncio.wait_for(
                     session.call_tool(tool_name, tool_args),
                     timeout=settings.tool_timeout
@@ -149,8 +178,15 @@ class MCPClient:
                     await asyncio.sleep(0.5 * (attempt + 1))
                 else:
                     raise asyncio.TimeoutError(f"Tool {tool_name} timed out")
-            except Exception:
-                raise
+            except Exception as e:
+                logger.warning(f"Tool {tool_name} failed (attempt {attempt + 1}/{max_retries + 1}): {e}")
+                await self._remove_session()
+
+                if attempt < max_retries:
+                    logger.info("Retrying with new session...")
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                else:
+                    raise
 
         raise RuntimeError(f"Tool {tool_name} failed")
 
@@ -166,6 +202,7 @@ class MCPClient:
             return True
         except Exception as e:
             logger.error(f"MCP Connection check failed: {e}")
+            await self._remove_session(token)
             return False
 
     async def _load_tools(self, token: Optional[str] = None, session: Optional[Any] = None):
@@ -199,7 +236,24 @@ class MCPClient:
 
     async def cleanup(self):
         """Clean up all sessions."""
-        await self.exit_stack.aclose()
+        if not self._sessions:
+            return
+
+        logger.info(f"Cleaning up {len(self._sessions)} active sessions...")
+        # Create a list of cleanups to run
+        cleanups = []
+        for token_hash, (session, stack) in list(self._sessions.items()):
+            cleanups.append(stack.aclose())
+
+        # Run all cleanups with timeout
+        if cleanups:
+            try:
+                await asyncio.wait_for(asyncio.gather(*cleanups, return_exceptions=True), timeout=10.0)
+            except asyncio.TimeoutError:
+                logger.warning("Timeout during MCP client cleanup")
+            except Exception as e:
+                logger.error(f"Error during MCP client cleanup: {e}")
+
         self._sessions.clear()
 
     async def _log_conversation(self, conversation_id: str, messages: list):
