@@ -6,8 +6,8 @@ import asyncio
 import json
 from sqlalchemy import select, delete, func
 from sqlalchemy.orm import selectinload
-from ..core.database import AsyncSessionLocal
-from ..core.models import Conversation, Message
+from agent.core.database import AsyncSessionLocal
+from agent.core.models import Conversation, Message
 
 
 class ConversationRepository(ABC):

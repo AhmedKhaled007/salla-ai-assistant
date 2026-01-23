@@ -1,6 +1,6 @@
 from fastapi import Request, HTTPException, Depends, Header
-from ..services.mcp_client import MCPClient
-from ..services.auth_service import get_tokens
+from agent.services.mcp_client import MCPClient
+from agent.services.auth_service import get_tokens
 
 
 def get_mcp_client(request: Request) -> MCPClient:

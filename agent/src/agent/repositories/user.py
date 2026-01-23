@@ -3,8 +3,8 @@
 from abc import ABC, abstractmethod
 from typing import Optional
 from sqlalchemy import select
-from ..core.database import AsyncSessionLocal
-from ..core.models import User
+from agent.core.database import AsyncSessionLocal
+from agent.core.models import User
 
 
 class UserRepository(ABC):

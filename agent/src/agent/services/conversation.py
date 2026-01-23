@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
-from ..core import get_conversation_repository, logger
-from .llm import call_llm
+from agent.core import get_conversation_repository, logger
+from agent.services.llm import call_llm
 
 
 class ConversationService:

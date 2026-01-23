@@ -1,5 +1,5 @@
-from ...services import ConversationService, get_tokens
-from ..dependencies import get_user_id
+from agent.services import ConversationService
+from agent.api.dependencies import get_user_id
 from fastapi import APIRouter, HTTPException, Depends
 
 router = APIRouter()

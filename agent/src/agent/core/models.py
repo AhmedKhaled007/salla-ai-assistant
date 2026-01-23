@@ -1,10 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from sqlalchemy import String, Integer, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from datetime import timezone
 
-from .database import Base
+from agent.core.database import Base
 
 
 class User(Base):

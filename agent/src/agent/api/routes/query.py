@@ -1,12 +1,14 @@
 """Query processing endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi import Request
+import json
 
-from ..models import QueryRequest
-from ...services import MCPClient, get_valid_access_token
-from ..dependencies import get_mcp_client, get_user_id, get_auth_session_id
+
+from agent.api.models import QueryRequest
+from agent.services import get_valid_access_token
+from agent.api.dependencies import get_mcp_client, get_user_id, get_auth_session_id
 
 router = APIRouter()
 
@@ -57,7 +59,7 @@ async def process_query_stream(
     access_token = await get_valid_access_token(auth_session_id)
 
     async def event_generator():
-        import json
+
         try:
             # We already have access_token, but let's also get user_id
             user_id = await get_user_id(auth_session_id)

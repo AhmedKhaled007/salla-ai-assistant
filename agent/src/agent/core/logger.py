@@ -3,7 +3,7 @@
 import logging
 import sys
 
-from .config import settings
+from agent.core.config import settings
 
 
 def setup_logger(name: str = "agent") -> logging.Logger:

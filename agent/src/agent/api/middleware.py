@@ -2,9 +2,9 @@
 
 from fastapi import Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
 
-from ..core import settings, get_rate_limit_repository
+
+from agent.core import settings, get_rate_limit_repository
 
 _rate_limit_repo = get_rate_limit_repository()
 

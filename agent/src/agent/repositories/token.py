@@ -8,8 +8,8 @@ from typing import Optional
 from datetime import datetime, timedelta, timezone
 import asyncio
 from sqlalchemy import select, delete
-from ..core.database import AsyncSessionLocal
-from ..core.models import AuthSession, User
+from agent.core.database import AsyncSessionLocal
+from agent.core.models import AuthSession
 
 
 class TokenRepository(ABC):

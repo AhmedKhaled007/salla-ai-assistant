@@ -1,9 +1,9 @@
 
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends
 import uuid
-from ..dependencies import get_auth_session_id
-from ..models import OAuthCallbackRequest
-from ...services import (
+from agent.api.dependencies import get_auth_session_id
+from agent.api.models import OAuthCallbackRequest
+from agent.services import (
     generate_state,
     store_state,
     generate_auth_url,
@@ -15,7 +15,7 @@ from ...services import (
     is_authenticated,
     get_tokens
 )
-from ...core import get_user_repository
+from agent.core import get_user_repository
 
 router = APIRouter()
 

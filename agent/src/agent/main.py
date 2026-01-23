@@ -4,10 +4,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from .core import settings, logger
-from .services import MCPClient
-from .api import api_router
-from .api.middleware import rate_limit_middleware, setup_cors
+from agent.core import settings, logger
+from agent.services import MCPClient
+from agent.api import api_router
+from agent.api.middleware import rate_limit_middleware, setup_cors
 
 
 @asynccontextmanager

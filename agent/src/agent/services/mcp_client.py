@@ -22,12 +22,12 @@ import aiofiles
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
-import litellm
 
-from ..core import settings, logger
-from .prompts import SYSTEM_PROMPT
-from .llm import call_llm
-from .conversation import ConversationService
+
+from agent.core import settings, logger
+from agent.services.prompts import SYSTEM_PROMPT
+from agent.services.llm import call_llm
+from agent.services.conversation import ConversationService
 
 # Context for multi-tenant token isolation
 token_context: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("mcp_token", default=None)

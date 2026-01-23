@@ -11,8 +11,8 @@ from typing import Optional, Dict, Any
 
 import httpx
 
-from ..core import settings, logger
-from ..core import (
+from agent.core import settings, logger
+from agent.core import (
     get_token_repository,
     get_state_repository,
 )

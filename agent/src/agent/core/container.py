@@ -10,15 +10,13 @@ Example:
         return RedisTokenRepository(redis_client)
 """
 
-from ..repositories import (
+from agent.repositories import (
     TokenRepository,
     StateRepository,
     RateLimitRepository,
     ConversationRepository,
-    InMemoryTokenRepository,
     InMemoryStateRepository,
     InMemoryRateLimitRepository,
-    InMemoryConversationRepository,
     SQLAlchemyTokenRepository,
     SQLAlchemyConversationRepository,
     SQLAlchemyUserRepository,
