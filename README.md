@@ -17,7 +17,7 @@ This project leverages the **Model Context Protocol (MCP)** to standardize AI to
 - **🛡️ Secure Multi-Tenancy**: Built with a custom **MCP Connection Pool** that manages isolated, per-user OAuth tokens, ensuring strict data privacy between merchants.
 - **🔄 Resilience & Fault Tolerance**: Features a **"Degraded Mode"** that allows the agent service to remain operational even if the MCP integration server is temporarily unreachable.
 - **🔒 Production-Grade Storage**: Migrated from SQLite to **PostgreSQL** for robust, scalable data persistence.
-
+ 
 ---
 
 ## 🛠️ Technology Stack

@@ -17,7 +17,7 @@ The modern, responsive chat interface for the Salla AI Assistant. Built with the
 - **Styling**: Tailwind CSS 4
 - **Routing**: React Router 7
 - **Markdown**: React Markdown + Remark GFM
-
+ 
 ## 🔧 Setup & Development
 
 ### 1. Prerequisites
