@@ -167,6 +167,12 @@ class MCPClient:
                     session.call_tool(tool_name, tool_args),
                     timeout=settings.tool_timeout
                 )
+                logger.info(f"Tool {tool_name} executed successfully, result: {result}")
+                # Check for tool execution errors
+                if getattr(result, 'isError', False):
+                    error_text = "\n".join([c.text for c in result.content if c.type == 'text']
+                                           ) if hasattr(result, 'content') else str(result)
+                    logger.error(f"Tool {tool_name} execution error: {error_text}")
 
                 if hasattr(result, 'content') and result.content:
                     return "\n".join([c.text for c in result.content if c.type == 'text'])

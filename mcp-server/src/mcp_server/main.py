@@ -201,7 +201,7 @@ async def create_product(
         if metadata_description:
             data["metadata_description"] = metadata_description
 
-        result = await client.post("/products", data=data)
+        result = await client.post("/products", data=json.dumps(data))
         return format_response(result)
     except Exception as e:
         return format_error(e)
