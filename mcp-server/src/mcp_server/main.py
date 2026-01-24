@@ -5,11 +5,11 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP, Context
 
 from .salla_client import SallaClient
-
+from .config import settings
 
 # Initialize MCP server
 # Initialize logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=settings.logger_level)
 logger = logging.getLogger(__name__)
 
 # Initialize MCP server
@@ -18,7 +18,7 @@ mcp = FastMCP("salla-ecommerce", host="0.0.0.0", stateless_http=True, json_respo
 
 def format_error(error: Exception) -> dict:
     """Format error as dict."""
-    return {"message": str(error)}
+    return {"error": str(error)}
 
 
 def get_salla_client(ctx: Context) -> SallaClient:
@@ -129,9 +129,6 @@ async def create_product(
     status: str = "",
     sale_price: float = None,
     cost_price: float = None,
-    weight: float = None,
-    weight_type: str = "kg",
-    require_shipping: bool = True,
     images: list[dict] = None,
     options: list[dict] = None,
     metadata_title: str = "",
@@ -180,12 +177,6 @@ async def create_product(
             data["sale_price"] = sale_price
         if cost_price is not None:
             data["cost_price"] = cost_price
-        if weight is not None:
-            data["weight"] = weight
-        if weight_type:
-            data["weight_type"] = weight_type
-        if require_shipping is not None:
-            data["require_shipping"] = require_shipping
         if images:
             data["images"] = images
         if options:
@@ -195,7 +186,7 @@ async def create_product(
         if metadata_description:
             data["metadata_description"] = metadata_description
 
-        result = await client.post("/products", data=json.dumps(data))
+        result = await client.post("/products", data=data)
         return result
     except Exception as e:
         return format_error(e)

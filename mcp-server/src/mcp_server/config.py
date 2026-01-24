@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     # API settings
     api_timeout: int = 30
     api_max_retries: int = 3
-
+    logger_level: str = "INFO"
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
