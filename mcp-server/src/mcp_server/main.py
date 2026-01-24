@@ -4,7 +4,7 @@ import logging
 from typing import Any
 from mcp.server.fastmcp import FastMCP, Context
 
-from .salla_client import SallaClient, SallaAPIError
+from .salla_client import SallaClient
 
 
 # Initialize MCP server
@@ -13,19 +13,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize MCP server
-mcp = FastMCP("salla-ecommerce", host="0.0.0.0")
+mcp = FastMCP("salla-ecommerce", host="0.0.0.0", stateless_http=True, json_response=True)
 
 
-def format_response(data: Any) -> str:
-    """Format response data as JSON string."""
-    return json.dumps(data, indent=2, ensure_ascii=False, default=str)
-
-
-def format_error(error: Exception) -> str:
-    """Format error as readable string."""
-    if isinstance(error, SallaAPIError):
-        return f"API Error ({error.status_code}): {error.message}"
-    return f"Error: {str(error)}"
+def format_error(error: Exception) -> dict:
+    """Format error as dict."""
+    return {"message": str(error)}
 
 
 def get_salla_client(ctx: Context) -> SallaClient:
@@ -70,7 +63,7 @@ async def list_products(
     category: str = "",
     page: int = 1,
     per_page: int = 15,
-) -> str:
+) -> dict:
     """
     List all products in the Salla store with optional filtering.
 
@@ -99,13 +92,13 @@ async def list_products(
             params["category"] = category
 
         result = await client.get("/products", params=params)
-        return format_response(result)
+        return result
     except Exception as e:
         return format_error(e)
 
 
 @mcp.tool()
-async def get_product(ctx: Context, product_id: int) -> str:
+async def get_product(ctx: Context, product_id: int) -> dict:
     """
     Get detailed information about a specific product.
 
@@ -118,7 +111,8 @@ async def get_product(ctx: Context, product_id: int) -> str:
     try:
         client = get_salla_client(ctx)
         result = await client.get(f"/products/{product_id}")
-        return format_response(result)
+        return result
+
     except Exception as e:
         return format_error(e)
 
@@ -142,7 +136,7 @@ async def create_product(
     options: list[dict] = None,
     metadata_title: str = "",
     metadata_description: str = "",
-) -> str:
+) -> dict:
     """
     Create a new product in the Salla store.
 
@@ -202,7 +196,7 @@ async def create_product(
             data["metadata_description"] = metadata_description
 
         result = await client.post("/products", data=json.dumps(data))
-        return format_response(result)
+        return result
     except Exception as e:
         return format_error(e)
 
@@ -219,7 +213,7 @@ async def update_product(
     status: str = "",
     sale_price: float = None,
     require_shipping: bool = None,
-) -> str:
+) -> dict:
     """
     Update an existing product's details.
 
@@ -261,7 +255,7 @@ async def update_product(
             return "Error: No fields provided to update"
 
         result = await client.put(f"/products/{product_id}", data=data)
-        return format_response(result)
+        return result
     except Exception as e:
         return format_error(e)
 
@@ -279,7 +273,7 @@ async def list_orders(
     status: str = "",
     from_date: str = "",
     to_date: str = "",
-) -> str:
+) -> dict:
     """
     List all orders in the Salla store with optional filtering.
 
@@ -311,7 +305,7 @@ async def list_orders(
             params["to_date"] = to_date
 
         result = await client.get("/orders", params=params)
-        return format_response(result)
+        return result
     except Exception as e:
         return format_error(e)
 
@@ -320,8 +314,8 @@ async def list_orders(
 async def get_order(
     ctx: Context,
     order_id: int,
-    format: str = "",
-) -> str:
+    format: str = "light",
+) -> dict:
     """
     Get detailed information about a specific order.
 
@@ -338,7 +332,7 @@ async def get_order(
         if format:
             params["format"] = format
         result = await client.get(f"/orders/{order_id}", params=params)
-        return format_response(result)
+        return result
     except Exception as e:
         return format_error(e)
 
@@ -352,7 +346,7 @@ async def create_order(
     payment_method: str = "bank",
     bank_id: int = None,
     receipt_image: str = "",
-) -> str:
+) -> dict:
     """
     Create a new order in the Salla store.
 
@@ -387,7 +381,7 @@ async def create_order(
                 data["payment"]["receipt_image_path"] = receipt_image
 
         result = await client.post("/orders", data=data)
-        return format_response(result)
+        return result
     except Exception as e:
         return format_error(e)
 
@@ -400,7 +394,7 @@ async def update_order_status(
     slug: str = "",
     note: str = "",
     restore_items: bool = False,
-) -> str:
+) -> dict:
     """
     Update the status of an existing order.
 
@@ -430,7 +424,7 @@ async def update_order_status(
             return "Error: Provide either status_id or slug"
 
         result = await client.post(f"/orders/{order_id}/status", data=data)  # POST not PUT according to spec
-        return format_response(result)
+        return result
     except Exception as e:
         return format_error(e)
 
@@ -447,7 +441,7 @@ async def list_customers(
     keyword: str = "",
     date_from: str = "",
     date_to: str = "",
-) -> str:
+) -> dict:
     """
     List all customers in the Salla store with optional filtering.
 
@@ -476,13 +470,13 @@ async def list_customers(
             params["date_to"] = date_to
 
         result = await client.get("/customers", params=params)
-        return format_response(result)
+        return result
     except Exception as e:
         return format_error(e)
 
 
 @mcp.tool()
-async def get_customer(ctx: Context, customer_id: int) -> str:
+async def get_customer(ctx: Context, customer_id: int) -> dict:
     """
     Get detailed information about a specific customer.
 
@@ -495,7 +489,7 @@ async def get_customer(ctx: Context, customer_id: int) -> str:
     try:
         client = get_salla_client(ctx)
         result = await client.get(f"/customers/{customer_id}")
-        return format_response(result)
+        return result
     except Exception as e:
         return format_error(e)
 
@@ -511,7 +505,7 @@ async def create_customer(
     gender: str = "",
     birthday: str = "",
     groups: list[int] = None,
-) -> str:
+) -> dict:
     """
     Create a new customer in the Salla store.
 
@@ -548,7 +542,7 @@ async def create_customer(
             data["groups"] = groups
 
         result = await client.post("/customers", data=data)
-        return format_response(result)
+        return result
     except Exception as e:
         return format_error(e)
 
@@ -558,7 +552,7 @@ async def create_customer(
 # =============================================================================
 
 @mcp.tool()
-async def get_store_info(ctx: Context) -> str:
+async def get_store_info(ctx: Context) -> dict:
     """
     Get information about the Salla store.
 
@@ -568,7 +562,7 @@ async def get_store_info(ctx: Context) -> str:
     try:
         client = get_salla_client(ctx)
         result = await client.get("/store/info")
-        return format_response(result)
+        return result
     except Exception as e:
         return format_error(e)
 

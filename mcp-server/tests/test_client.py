@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 import httpx
-from mcp_server.salla_client import SallaClient, SallaAPIError, get_shared_client, close_shared_client
+from mcp_server.salla_client import SallaClient,  close_shared_client
 
 
 import pytest_asyncio

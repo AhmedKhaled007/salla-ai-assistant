@@ -1,5 +1,5 @@
 """Salla API HTTP client wrapper."""
-from typing import Any, Optional
+from typing import Optional
 import asyncio
 import httpx
 import logging
@@ -7,17 +7,6 @@ import logging
 from .config import settings
 
 logger = logging.getLogger(__name__)
-
-
-class SallaAPIError(Exception):
-    """Custom exception for Salla API errors."""
-
-    def __init__(self, status_code: int, message: str, details: Any = None):
-        self.status_code = status_code
-        self.message = message
-        self.details = details
-        super().__init__(f"Salla API Error {status_code}: {message}")
-
 
 # Global shared client for connection pooling
 _SHARED_CLIENT: Optional[httpx.AsyncClient] = None
@@ -97,24 +86,21 @@ class SallaClient:
         data: Optional[dict] = None
     ) -> dict:
         """Make HTTP request to Salla API with retry logic."""
-        last_exception = None
         client = await get_shared_client()
+        request = client.build_request(
+            method,
+            endpoint,
+            params=params,
+            json=data,
+            headers=self.headers,
+            timeout=self.timeout
+        )
+        logger.debug(
+            f"Making request with method: {method}\nEndpoint: {endpoint}\nParams: {params}\nData: {data}")
 
         for attempt in range(self.max_retries + 1):
             try:
-                # Merge headers with any client default headers if needed,
-                # but for now provided headers overwrite client defaults.
-                request = client.build_request(
-                    method,
-                    endpoint,
-                    params=params,
-                    json=data,
-                    headers=self.headers,
-                    timeout=self.timeout
-                )
-
                 response = await client.send(request)
-
                 # Check if we should retry based on status code
                 if self._is_retryable_error(response.status_code) and attempt < self.max_retries:
                     wait_time = (2 ** attempt) * 0.5
@@ -125,7 +111,6 @@ class SallaClient:
                 return self._handle_response(response)
 
             except (httpx.ConnectError, httpx.TimeoutException, ConnectionError, OSError) as e:
-                last_exception = e
                 logger.warning(f"Request connection error: {e}, retrying ({attempt + 1}/{self.max_retries})...")
                 if attempt < self.max_retries:
                     wait_time = (2 ** attempt) * 0.5
@@ -133,23 +118,12 @@ class SallaClient:
                     continue
                 raise
 
-        if last_exception:
-            raise last_exception
-        raise RuntimeError("Unexpected error in HTTP request")
-
     def _handle_response(self, response: httpx.Response) -> dict:
-        """Handle API response and raise errors if needed."""
+        """Handle API response"""
         try:
             data = response.json()
         except Exception:
             data = {"raw": response.text}
-
-        if response.status_code >= 400:
-            error_msg = data.get("message", "Unknown error")
-            # Log error details for debugging
-            logger.error(f"Salla API Error {response.status_code}: {error_msg}")
-            raise SallaAPIError(response.status_code, error_msg, data)
-
         return data
 
     async def get(self, endpoint: str, params: Optional[dict] = None) -> dict:
