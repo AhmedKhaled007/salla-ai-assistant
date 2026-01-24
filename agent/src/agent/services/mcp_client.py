@@ -257,6 +257,8 @@ class MCPClient:
                 await asyncio.wait_for(asyncio.gather(*cleanups, return_exceptions=True), timeout=10.0)
             except asyncio.TimeoutError:
                 logger.warning("Timeout during MCP client cleanup")
+            except asyncio.CancelledError:
+                logger.warning("MCP client cleanup was cancelled during shutdown")
             except Exception as e:
                 logger.error(f"Error during MCP client cleanup: {e}")
 

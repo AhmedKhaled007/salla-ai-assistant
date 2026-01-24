@@ -1,4 +1,5 @@
 from typing import Dict, Any
+import asyncio
 from fastapi import APIRouter, Depends, Request
 
 from agent.services import get_valid_access_token
@@ -15,7 +16,10 @@ async def health_check(request: Request) -> Dict[str, Any]:
     Returns MCP connection status and LLM availability.
     """
     mcp_client = get_mcp_client(request)
-    mcp_status = await mcp_client.ping()
+    try:
+        mcp_status = await asyncio.wait_for(mcp_client.ping(), timeout=5.0)
+    except (Exception, asyncio.CancelledError):
+        mcp_status = False
 
     return {
         "status": "healthy",
