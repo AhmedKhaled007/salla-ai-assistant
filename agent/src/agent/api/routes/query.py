@@ -8,7 +8,7 @@ import json
 
 from agent.api.models import QueryRequest
 from agent.services import get_valid_access_token
-from agent.api.dependencies import get_mcp_client, get_user_id, get_auth_session_id
+from agent.api.dependencies import get_query_processor, get_user_id, get_auth_session_id
 
 router = APIRouter()
 
@@ -21,11 +21,11 @@ async def process_query(
 ):
     """Process a query and return the response.
 
-    Uses MCPClient singleton to process queries with token isolation.
+    Uses QueryProcessor service to process queries with token isolation.
     If conversation_id is provided, continues the existing conversation.
     If auth_session_id is provided (via header), uses the user's OAuth token.
     """
-    mcp_client = get_mcp_client(req)
+    query_processor = get_query_processor(req)
 
     # Get access token from session if authenticated
     access_token = None
@@ -33,7 +33,7 @@ async def process_query(
         access_token = await get_valid_access_token(auth_session_id)
 
     try:
-        messages = await mcp_client.process_query(
+        messages = await query_processor.process_query(
             request.query,
             request.conversation_id,
             token=access_token,
@@ -52,10 +52,10 @@ async def process_query_stream(
 ):
     """Process a query with Server-Sent Events streaming.
 
-    Uses MCPClient singleton to process queries with token isolation.
+    Uses QueryProcessor service to process queries with token isolation.
     Returns events as they happen: conversation, tool_call, tool_result, response, error, done.
     """
-    mcp_client = get_mcp_client(req)
+    query_processor = get_query_processor(req)
     access_token = await get_valid_access_token(auth_session_id)
 
     async def event_generator():
@@ -63,7 +63,7 @@ async def process_query_stream(
         try:
             # We already have access_token, but let's also get user_id
             user_id = await get_user_id(auth_session_id)
-            async for event in mcp_client.process_query_stream(
+            async for event in query_processor.process_query_stream(
                 request.query,
                 request.conversation_id,
                 token=access_token,

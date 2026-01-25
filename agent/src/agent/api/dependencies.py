@@ -1,11 +1,18 @@
 from fastapi import Request, HTTPException, Depends, Header
 from agent.services.mcp_client import MCPClient
+from agent.services.query_processor import QueryProcessor
 from agent.services.auth_service import get_tokens
 
 
 def get_mcp_client(request: Request) -> MCPClient:
     """Dependency to get the singleton MCPClient from app state."""
     return request.app.state.mcp_client
+
+
+def get_query_processor(request: Request) -> QueryProcessor:
+    """Dependency to get QueryProcessor."""
+    # We can perform dependency injection here
+    return QueryProcessor(request.app.state.mcp_client)
 
 
 async def get_auth_session_id(
