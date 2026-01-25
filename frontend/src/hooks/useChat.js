@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { sendQueryStream } from '../services/api';
 
 /**
@@ -12,7 +12,13 @@ export function useChat(authSessionId = null) {
     const [conversationId, setConversationId] = useState(null);
     const [title, setTitle] = useState(null);
     const [currentToolCall, setCurrentToolCall] = useState(null);
-    const abortControllerRef = useRef(null);
+    const activeConversationIdRef = useRef(conversationId);
+
+    useEffect(() => {
+        activeConversationIdRef.current = conversationId;
+    }, [conversationId]);
+
+
 
     const sendMessage = useCallback(async (query) => {
         if (!query.trim()) return;
@@ -34,15 +40,31 @@ export function useChat(authSessionId = null) {
         const assistantMessageId = Date.now() + 1;
         const toolCalls = [];
 
+
+
+        // Track the conversation ID for this specific request
+        let trackingId = conversationId;
+
         try {
             await sendQueryStream(query, conversationId, authSessionId, {
                 onConversation: (newConversationId) => {
-                    setConversationId(newConversationId);
+                    // Only update if we are still viewing the relevant conversation
+                    if (activeConversationIdRef.current === trackingId) {
+                        setConversationId(newConversationId);
+                        // Update trackingId because the conversation ID has formally changed from null -> newId
+                        trackingId = newConversationId;
+                        // Manually sync ref to prevent race conditions during the render cycle
+                        activeConversationIdRef.current = newConversationId;
+                    }
                 },
                 onTitle: (newTitle) => {
-                    setTitle(newTitle);
+                    if (activeConversationIdRef.current === trackingId) {
+                        setTitle(newTitle);
+                    }
                 },
                 onToolCall: ({ toolName, toolArgs }) => {
+                    if (activeConversationIdRef.current !== trackingId) return;
+
                     const toolCall = { name: toolName, args: toolArgs, status: 'running' };
                     toolCalls.push(toolCall);
                     setCurrentToolCall(toolCall);
@@ -57,6 +79,8 @@ export function useChat(authSessionId = null) {
                     }]);
                 },
                 onToolResult: ({ toolName, result }) => {
+                    if (activeConversationIdRef.current !== trackingId) return;
+
                     // Mark tool as complete
                     const tool = toolCalls.find(t => t.name === toolName && t.status === 'running');
                     if (tool) tool.status = 'complete';
@@ -72,6 +96,8 @@ export function useChat(authSessionId = null) {
                     }]);
                 },
                 onResponseChunk: (chunk) => {
+                    if (activeConversationIdRef.current !== trackingId) return;
+
                     setMessages(prev => {
                         const existingMsgIndex = prev.findIndex(m => m.id === assistantMessageId);
                         if (existingMsgIndex !== -1) {
@@ -92,6 +118,8 @@ export function useChat(authSessionId = null) {
                     });
                 },
                 onResponse: (content) => {
+                    if (activeConversationIdRef.current !== trackingId) return;
+
                     // Final update to ensure consistency
                     setMessages(prev => {
                         const existingMsgIndex = prev.findIndex(m => m.id === assistantMessageId);
@@ -113,6 +141,8 @@ export function useChat(authSessionId = null) {
                     });
                 },
                 onError: (message) => {
+                    if (activeConversationIdRef.current !== trackingId) return;
+
                     setError(message);
                     setMessages(prev => [...prev, {
                         id: Date.now(),
@@ -123,10 +153,14 @@ export function useChat(authSessionId = null) {
                     }]);
                 },
                 onDone: () => {
-                    setCurrentToolCall(null);
+                    if (activeConversationIdRef.current === trackingId) {
+                        setCurrentToolCall(null);
+                    }
                 },
             });
         } catch (err) {
+            if (activeConversationIdRef.current !== trackingId) return;
+
             setError(err.message);
             setMessages(prev => [...prev, {
                 id: Date.now(),
@@ -136,8 +170,10 @@ export function useChat(authSessionId = null) {
                 timestamp: new Date().toISOString(),
             }]);
         } finally {
-            setIsLoading(false);
-            setCurrentToolCall(null);
+            if (activeConversationIdRef.current === trackingId) {
+                setIsLoading(false);
+                setCurrentToolCall(null);
+            }
         }
     }, [conversationId, authSessionId]);
 
@@ -161,6 +197,9 @@ export function useChat(authSessionId = null) {
         setMessages,
         setConversationId,
         setTitle,
+
+        setIsLoading,
+        setCurrentToolCall,
     };
 }
 

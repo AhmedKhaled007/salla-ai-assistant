@@ -35,7 +35,8 @@ function ProtectedRoute({ children }) {
 // Main chat application content
 function ChatApp() {
   const { logout, merchantInfo, authSessionId } = useAuth();
-  const { messages, isLoading, conversationId, title, sendMessage, clearMessages, setMessages, setConversationId, setTitle } = useChat(authSessionId);
+  /* eslint-disable-next-line no-unused-vars */
+  const { messages, isLoading, conversationId, title, sendMessage, clearMessages, setMessages, setConversationId, setTitle, setIsLoading, setCurrentToolCall } = useChat(authSessionId);
   const [conversations, setConversations] = useState([]);
   const [healthStatus, setHealthStatus] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -109,9 +110,10 @@ function ChatApp() {
     }
   }, [conversationId, title]);
 
-  // Load a previous conversation
   const handleLoadConversation = useCallback(async (id) => {
     try {
+      setIsLoading(false);
+      setCurrentToolCall(null);
       const data = await getConversation(id, authSessionId);
       if (data) {
         setTitle(null);
