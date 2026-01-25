@@ -69,8 +69,8 @@ async def oauth_callback_endpoint(request: OAuthCallbackRequest):
             user_data = {
                 "name": merchant_info.get("name"),
                 "email": merchant_info.get("email"),
-                "store_name": merchant_info.get("store", {}).get("name"),  # Adjust based on actual payload structure
-                "domain": merchant_info.get("store", {}).get("domain"),
+                "store_name": merchant_info.get("merchant", {}).get("name"),  
+                "domain": merchant_info.get("merchant", {}).get("domain"),
             }
             user = await user_repo.create_or_update(salla_user_id, user_data)
             user_id = user.id

@@ -28,7 +28,6 @@ from agent.repositories import (
 # SINGLETON INSTANCES
 # =============================================================================
 # We use singletons to share state across the application.
-# For Redis/DB backends, you'd create the connection here.
 
 _token_repo: TokenRepository | None = None
 _state_repo: StateRepository | None = None
