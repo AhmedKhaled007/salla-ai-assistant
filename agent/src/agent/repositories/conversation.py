@@ -18,6 +18,10 @@ class ConversationRepository(ABC):
         """Store conversation history."""
 
     @abstractmethod
+    async def add_message(self, conversation_id: str, message: dict) -> None:
+        """Add a single message to conversation."""
+
+    @abstractmethod
     async def get(self, conversation_id: str) -> Optional[list]:
         """Get conversation history."""
 
@@ -57,6 +61,13 @@ class InMemoryConversationRepository(ConversationRepository):
     async def store(self, conversation_id: str, messages: list) -> None:
         async with self._lock:
             self._store[conversation_id] = messages
+
+    async def add_message(self, conversation_id: str, message: dict) -> None:
+        async with self._lock:
+            if conversation_id in self._store:
+                self._store[conversation_id].append(message)
+            else:
+                self._store[conversation_id] = [message]
 
     async def get(self, conversation_id: str) -> Optional[list]:
         async with self._lock:
@@ -136,6 +147,24 @@ class SQLAlchemyConversationRepository(ConversationRepository):
                 )
                 session.add(message)
 
+            await session.commit()
+
+    async def add_message(self, conversation_id: str, message: dict) -> None:
+        async with AsyncSessionLocal() as session:
+            role = message.get("role")
+            content = message.get("content")
+
+            if role == "tool" or not content:
+                content = json.dumps(message, ensure_ascii=False)
+            elif not isinstance(content, str):
+                content = json.dumps(content, ensure_ascii=False)
+
+            msg_obj = Message(
+                conversation_id=conversation_id,
+                role=role,
+                content=content
+            )
+            session.add(msg_obj)
             await session.commit()
 
     async def create(self, conversation_id: str, user_id: int, title: Optional[str] = None) -> None:

@@ -123,7 +123,9 @@ class QueryProcessor:
                     except Exception:
                         pass
 
-                messages.append({"role": "user", "content": query})
+                user_msg = {"role": "user", "content": query}
+                messages.append(user_msg)
+                await self.conversation_service.add_message(conversation_id, user_msg)
                 openai_tools = self.mcp_client.get_openai_tools()
                 iteration_count = 0
 
@@ -158,6 +160,7 @@ class QueryProcessor:
                     if tool_calls:
                         assistant_msg["tool_calls"] = tool_calls
                     messages.append(assistant_msg)
+                    await self.conversation_service.add_message(conversation_id, assistant_msg)
 
                     if tool_calls:
                         for tool_call in tool_calls:
@@ -168,18 +171,19 @@ class QueryProcessor:
                             tool_output = await self.mcp_client.execute_tool(tool_name, tool_args)
                             yield {"type": "tool_result", "tool_name": tool_name, "result": tool_output}
 
-                            messages.append({
+                            tool_msg = {
                                 "role": "tool",
                                 "name": tool_name,
                                 "tool_call_id": tool_call["id"],
                                 "content": tool_output
-                            })
+                            }
+                            messages.append(tool_msg)
+                            await self.conversation_service.add_message(conversation_id, tool_msg)
                         iteration_count += 1
                     else:
                         yield {"type": "response", "content": current_content}
                         break
 
-                await self.conversation_service.save_history(conversation_id, messages)
                 await self._log_conversation(conversation_id, messages)
 
                 filtered_messages = [msg for msg in messages if msg.get("role") != "system"]

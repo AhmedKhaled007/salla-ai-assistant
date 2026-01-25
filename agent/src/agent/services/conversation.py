@@ -26,6 +26,10 @@ class ConversationService:
         """Save conversation history."""
         await self._conversation_repo.store(conversation_id, messages)
 
+    async def add_message(self, conversation_id: str, message: dict) -> None:
+        """Add a single message to conversation."""
+        await self._conversation_repo.add_message(conversation_id, message)
+
     async def delete_conversation(self, conversation_id: str) -> bool:
         """Delete a conversation. Returns True if conversation existed."""
         return await self._conversation_repo.delete(conversation_id)
