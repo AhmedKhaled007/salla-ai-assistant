@@ -1,19 +1,15 @@
 """Tests for the Agent Service."""
 
 import pytest
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
+from mcp.types import ListToolsResult, Tool
 
 from agent.services import MCPClient
-from agent.api.dependencies import get_query_processor
 from agent.services.conversation import ConversationService
 from agent.main import app
-from agent.repositories import (
-    InMemoryTokenRepository,
-    InMemoryStateRepository,
-    InMemoryRateLimitRepository,
-    InMemoryConversationRepository,
-)
+from agent.repositories import InMemoryTokenRepository
 
 
 # ============================================================================
@@ -25,61 +21,30 @@ class TestMCPClient:
     """Tests for MCPClient class."""
 
     async def test_client_initialization(self):
-        """Test MCPClient can be initialized with different transports."""
-        client = MCPClient(transport="http")
-        assert client.transport == "http"
+        """Test MCPClient can be initialized with an HTTP server URL."""
+        client = MCPClient(server_url="http://mcp.example/mcp")
+        assert client.server_url == "http://mcp.example/mcp"
 
-        client_stdio = MCPClient(transport="stdio")
-        assert client_stdio.transport == "stdio"
-
-    async def test_ping_returns_false_when_not_connected(self):
-        """Test ping returns False when no connection can be established."""
+    async def test_probe_returns_false_when_not_connected(self):
+        """Test probe reports a failed connection without raising."""
         client = MCPClient()
-        # Note: ping(token=None) will fail if no server url or no server running
-        with patch.object(MCPClient, 'get_session', side_effect=Exception("Connection failed")):
-            assert await client.ping() is False
 
-    async def test_conversation_service_is_initialized(self):
-        """Test MCPClient initializes ConversationService."""
-        # MCPClient no longer has conversation_service, it was moved to QueryProcessor
-        # But wait, did I remove it from MCPClient? 
-        # In my edit to mcp_client.py I kept it: `self.conversation_service = ConversationService()`
-        # Let's check mcp_client.py again. I didn't remove it in the replacement I think?
-        # I removed process_query but conversation_service might still be there.
-        # Let's assume for now it is removed or check.
-        # Actually I replaced a chunk in mcp_client.py, I should check if I removed conversation_service from __init__.
-        # I did NOT remove it from __init__ in my previous edits.
-        # So this test remains valid if I didn't remove it.
-        # But logically it should be in QueryProcessor.
-        # I will update this test to check if QueryProcessor has it, or just skip it if I didn't remove it from MCPClient yet.
-        # Ideally I should have removed it from MCPClient if it is not used.
-        pass
+        @asynccontextmanager
+        async def failed_connect(token=None):
+            raise ConnectionError("Connection failed")
+            yield
+
+        with patch.object(client, "connect", side_effect=failed_connect):
+            probe = await client.probe()
+
+        assert probe["connected"] is False
+        assert probe["protocol_version"] is None
 
 
 @pytest.mark.asyncio
 class TestConversationService:
     """Tests for ConversationService class."""
 
-    async def test_create_conversation(self):
-        """Test conversation creation returns valid UUID."""
-        with patch('agent.services.conversation.get_conversation_repository') as mock_get_repo:
-            mock_repo = AsyncMock()
-            mock_get_repo.return_value = mock_repo
-            
-            # Re-instantiate service to use the mock
-            service = ConversationService()
-            # Or manually set it if we want to avoid re-instantiation issues if it was already imported, 
-            # but getting a fresh instance is safer if get_conversation_repository is called in __init__.
-            
-            # Wait, ConversationService calls get_conversation_repository() in __init__.
-            # So patching it before instantiation is key.
-            # But the service module is already imported at top of file.
-            # So I need to patch where it is used.
-            pass
-            # Actually, let's just create a service instance and manually set the repo for testing logic 
-            # if we can't easily patch the init process.
-            # But patching get_conversation_repository should work if we patch it in agent.services.conversation namespace.
-            
     async def test_create_conversation_logic(self):
         """Test conversation creation returns valid UUID."""
         # Use a fresh instance with mocked repo
@@ -131,8 +96,23 @@ class TestInMemoryTokenRepository:
 def mock_mcp_client():
     """Create a mock MCPClient for testing."""
     mock = MagicMock(spec=MCPClient)
-    mock.ping = AsyncMock(return_value=True)
-    mock.cleanup = AsyncMock()
+    mock.probe = AsyncMock(return_value={
+        "connected": True,
+        "protocol_version": "2026-07-28",
+        "server_name": "salla_mcp",
+        "tool_count": 12,
+    })
+    connection = MagicMock()
+    connection.list_tools = AsyncMock(return_value=ListToolsResult(tools=[
+        Tool(name="salla_list_products", inputSchema={"type": "object"}),
+        Tool(name="salla_get_store_info", inputSchema={"type": "object"}),
+    ]))
+
+    @asynccontextmanager
+    async def connect(token=None):
+        yield connection
+
+    mock.connect.side_effect = connect
     return mock
 
 
@@ -143,12 +123,6 @@ def mock_query_processor():
     mock = MagicMock(spec=QueryProcessor)
     return mock
 
-
-@pytest.fixture
-async def async_client(mock_mcp_client, mock_query_processor):
-    """Create an async test client."""
-    app.state.mcp_client = mock_mcp_client
-    transport = ASGITransport(app=app)
 
 @pytest.fixture
 async def async_client(mock_mcp_client, mock_query_processor):
@@ -188,6 +162,21 @@ async def test_health_check(async_client):
     data = response.json()
     assert data["status"] == "healthy"
     assert data["mcp_server"] == "connected"
+    assert data["mcp_protocol_version"] == "2026-07-28"
+    assert data["mcp_server_name"] == "salla_mcp"
+
+
+@pytest.mark.asyncio
+async def test_get_tools_uses_token_scoped_connection(async_client, mock_mcp_client):
+    client, _ = async_client
+
+    response = await client.get("/tools")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "tools": ["salla_list_products", "salla_get_store_info"]
+    }
+    mock_mcp_client.connect.assert_called_once_with("test-token")
 
 
 @pytest.mark.asyncio

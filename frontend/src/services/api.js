@@ -157,7 +157,7 @@ export async function getTools(authSessionId = null) {
 
 /**
  * Check backend health status
- * @returns {Promise<{status: string, mcp_connected: boolean, mcp_responsive: boolean}>}
+ * @returns {Promise<{status: string, mcp_server: string, mcp_protocol_version: string|null, mcp_server_name: string|null}>}
  */
 export async function checkHealth() {
     const response = await fetch(`${API_BASE_URL}/health`);

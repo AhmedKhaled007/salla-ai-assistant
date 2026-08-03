@@ -2,10 +2,8 @@
 
 import json
 import traceback
-import contextvars
 from typing import Optional, Any, AsyncGenerator
 from datetime import datetime
-import asyncio
 import os
 import aiofiles
 
@@ -14,9 +12,6 @@ from agent.services.prompts import SYSTEM_PROMPT
 from agent.services.llm import call_llm
 from agent.services.conversation import ConversationService
 from agent.services.mcp_client import MCPClient
-
-
-from agent.services.mcp_client import token_context
 
 class QueryProcessor:
     """Service to process queries using LLM and MCP Client."""
@@ -27,32 +22,21 @@ class QueryProcessor:
 
     async def process_query(self, query: str, conversation_id: str | None = None, token: Optional[str] = None, user_id: Optional[int] = None) -> tuple[str, list]:
         """Process a query and return its conversation ID and messages."""
-        # Set token in context if provided
-        token_reset = None
-        if token:
-            token_reset = token_context.set(token)
+        messages = []
+        if conversation_id:
+            messages = await self.conversation_service.get_history(conversation_id)
+        else:
+            if user_id is None:
+                raise ValueError("user_id is required when creating a conversation")
+            conversation_id = await self.conversation_service.create_conversation(user_id=user_id)
 
-        try:
-            # Ensure connection for this context
-            await self.mcp_client.ping()
+        if not messages:
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-            # Load an existing conversation or create one for this query.
-            messages = []
-            if conversation_id:
-                messages = await self.conversation_service.get_history(conversation_id)
-            else:
-                if user_id is None:
-                    raise ValueError("user_id is required when creating a conversation")
-                conversation_id = await self.conversation_service.create_conversation(user_id=user_id)
+        messages.append({"role": "user", "content": query})
 
-            if not messages:
-                messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-
-            messages.append({"role": "user", "content": query})
-
-            # Get cached tools in OpenAI format
-            openai_tools = self.mcp_client.get_openai_tools()
-
+        async with self.mcp_client.connect(token) as mcp_client:
+            openai_tools = await self.mcp_client.get_openai_tools(mcp_client)
             iteration_count = 0
             final_response = None
 
@@ -68,7 +52,11 @@ class QueryProcessor:
                         tool_args = json.loads(tool_call.function.arguments)
 
                         logger.info(f"Executing tool: {tool_name}")
-                        tool_output = await self.mcp_client.execute_tool(tool_name, tool_args)
+                        tool_output = await self.mcp_client.execute_tool(
+                            mcp_client,
+                            tool_name,
+                            tool_args,
+                        )
 
                         messages.append({
                             "role": "tool",
@@ -82,51 +70,43 @@ class QueryProcessor:
                     messages.append({"role": "assistant", "content": final_response})
                     break
 
-            if not final_response and iteration_count >= settings.max_iterations:
-                messages.append(
-                    {"role": "assistant", "content": "I'm sorry, I needed too many steps to complete this request."})
+        if not final_response and iteration_count >= settings.max_iterations:
+            messages.append(
+                {"role": "assistant", "content": "I'm sorry, I needed too many steps to complete this request."})
 
-            await self.conversation_service.save_history(conversation_id, messages)
-            await self._log_conversation(conversation_id, messages)
+        await self.conversation_service.save_history(conversation_id, messages)
+        await self._log_conversation(conversation_id, messages)
 
-            return conversation_id, [msg for msg in messages if msg.get("role") != "system"]
-
-        finally:
-            if token_reset:
-                token_context.reset(token_reset)
+        return conversation_id, [msg for msg in messages if msg.get("role") != "system"]
 
     async def process_query_stream(self, query: str, conversation_id: str | None = None, token: Optional[str] = None, user_id: Optional[int] = None) -> AsyncGenerator[dict[str, Any], None]:
         """Process a query with streaming, yielding events for each step."""
-        token_reset = None
-        if token:
-            token_reset = token_context.set(token)
-
         try:
-            try:
-                await self.mcp_client.ping()
+            messages = []
+            if conversation_id:
+                messages = await self.conversation_service.get_history(conversation_id)
+            else:
+                if user_id is None:
+                    raise ValueError("user_id is required when creating a conversation")
+                conversation_id = await self.conversation_service.create_conversation(user_id=user_id)
 
-                messages = []
-                if conversation_id:
-                    messages = await self.conversation_service.get_history(conversation_id)
-                else:
-                    # user_id is required; use 0 or fetch properly if available
-                    conversation_id = await self.conversation_service.create_conversation(user_id=user_id)
+            yield {"type": "conversation", "conversation_id": conversation_id}
 
-                yield {"type": "conversation", "conversation_id": conversation_id}
+            if not messages:
+                messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+                try:
+                    title = await self.conversation_service.generate_title(query)
+                    await self.conversation_service.update_title(conversation_id, title)
+                    yield {"type": "title", "title": title}
+                except Exception:
+                    pass
 
-                if not messages:
-                    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-                    try:
-                        title = await self.conversation_service.generate_title(query)
-                        await self.conversation_service.update_title(conversation_id, title)
-                        yield {"type": "title", "title": title}
-                    except Exception:
-                        pass
+            user_msg = {"role": "user", "content": query}
+            messages.append(user_msg)
+            await self.conversation_service.add_message(conversation_id, user_msg)
 
-                user_msg = {"role": "user", "content": query}
-                messages.append(user_msg)
-                await self.conversation_service.add_message(conversation_id, user_msg)
-                openai_tools = self.mcp_client.get_openai_tools()
+            async with self.mcp_client.connect(token) as mcp_client:
+                openai_tools = await self.mcp_client.get_openai_tools(mcp_client)
                 iteration_count = 0
 
                 while iteration_count < settings.max_iterations:
@@ -145,8 +125,11 @@ class QueryProcessor:
                             for tc_chunk in delta.tool_calls:
                                 idx = tc_chunk.index
                                 if idx not in tool_calls_buffer:
-                                    tool_calls_buffer[idx] = {"id": "", "type": "function",
-                                                              "function": {"name": "", "arguments": ""}}
+                                    tool_calls_buffer[idx] = {
+                                        "id": "",
+                                        "type": "function",
+                                        "function": {"name": "", "arguments": ""},
+                                    }
                                 if tc_chunk.id:
                                     tool_calls_buffer[idx]["id"] += tc_chunk.id
                                 if tc_chunk.function:
@@ -155,7 +138,7 @@ class QueryProcessor:
                                     if tc_chunk.function.arguments:
                                         tool_calls_buffer[idx]["function"]["arguments"] += tc_chunk.function.arguments
 
-                    tool_calls = [tool_calls_buffer[idx] for idx in sorted(tool_calls_buffer.keys())]
+                    tool_calls = [tool_calls_buffer[idx] for idx in sorted(tool_calls_buffer)]
                     assistant_msg = {"role": "assistant", "content": current_content or None}
                     if tool_calls:
                         assistant_msg["tool_calls"] = tool_calls
@@ -168,14 +151,18 @@ class QueryProcessor:
                             tool_args = json.loads(tool_call["function"]["arguments"])
                             yield {"type": "tool_call", "tool_name": tool_name, "tool_args": tool_args}
 
-                            tool_output = await self.mcp_client.execute_tool(tool_name, tool_args)
+                            tool_output = await self.mcp_client.execute_tool(
+                                mcp_client,
+                                tool_name,
+                                tool_args,
+                            )
                             yield {"type": "tool_result", "tool_name": tool_name, "result": tool_output}
 
                             tool_msg = {
                                 "role": "tool",
                                 "name": tool_name,
                                 "tool_call_id": tool_call["id"],
-                                "content": tool_output
+                                "content": tool_output,
                             }
                             messages.append(tool_msg)
                             await self.conversation_service.add_message(conversation_id, tool_msg)
@@ -184,19 +171,15 @@ class QueryProcessor:
                         yield {"type": "response", "content": current_content}
                         break
 
-                await self._log_conversation(conversation_id, messages)
+            await self._log_conversation(conversation_id, messages)
 
-                filtered_messages = [msg for msg in messages if msg.get("role") != "system"]
-                yield {"type": "done", "session_id": conversation_id, "messages": filtered_messages}
-            except Exception as e:
-                logger.error(f"Error in process_query_stream: {e}")
-                logger.error(traceback.format_exc())
-                yield {"type": "error", "message": str(e)}
-                raise
-
-        finally:
-            if token_reset:
-                token_context.reset(token_reset)
+            filtered_messages = [msg for msg in messages if msg.get("role") != "system"]
+            yield {"type": "done", "session_id": conversation_id, "messages": filtered_messages}
+        except Exception as e:
+            logger.error(f"Error in process_query_stream: {e}")
+            logger.error(traceback.format_exc())
+            yield {"type": "error", "message": str(e)}
+            raise
 
     async def _log_conversation(self, conversation_id: str, messages: list):
         """Save conversation to a JSON file asynchronously."""

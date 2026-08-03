@@ -5,8 +5,8 @@ The core "brain" of the Salla AI Assistant. This FastAPI service orchestrates co
 ## 🚀 Key Features
 
 *   **FastAPI & Async**: Built for high-concurrency with Python 3.13+ and full async support.
-*   **Model Context Protocol (MCP) Client**: Connects to the MCP Server to discover and execute Salla e-commerce tools.
-*   **Connection Pooling**: Custom `MCPClientPool` ensures isolated, secure Salla API access for multiple users simultaneously using their unique OAuth tokens.
+*   **MCP 2026-07-28 Client**: Uses the MCP Python SDK v2 client with automatic protocol negotiation and legacy fallback.
+*   **Request Isolation**: Opens one token-scoped MCP connection per agent query and closes it when the query finishes; MCP connections are not stored per user.
 *   **OAuth2 Integration**: Handles the application-side flow for Salla App Store authentication.
 *   **Database Persistence**: Uses PostgreSQL + SQLAlchemy (Async) to store user sessions, conversation history, and tokens.
 *   **Resilience**: Design includes "degraded mode" (starts even if MCP server is down) and gracefull shutdowns.
@@ -25,7 +25,6 @@ LLM_TEMPERATURE=1
 GEMINI_API_KEY=your_gemini_api_key
 
 # MCP Connection (Integration Layer)
-MCP_TRANSPORT=http
 MCP_SERVER_URL=http://localhost:8001/mcp
 
 # Salla OAuth Credentials
@@ -84,3 +83,10 @@ The Agent Service sits in the middle of the stack:
 3.  Sends context to **LLM**.
 4.  If LLM requests a tool (e.g., `list_products`), Agent forwards request + User Token to **MCP Server**.
 5.  Streams response back to Frontend via SSE.
+
+The HTTP transport currently forwards the user's Salla access token to the
+private MCP service. This is an internal deployment convention, not a
+standards-compliant MCP OAuth boundary. Do not expose the MCP service publicly,
+and do not log access tokens. A standards-compliant deployment must give the
+MCP server its own audience-bound credential and manage Salla authorization on
+the server side.

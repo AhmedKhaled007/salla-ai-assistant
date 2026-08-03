@@ -1,9 +1,10 @@
 """Salla MCP Server - Core e-commerce tools."""
+import argparse
 import logging
 from contextlib import asynccontextmanager
 import uvicorn
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from .config import settings
 from .salla_client import close_shared_client
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 # LIFESPAN MANAGEMENT
 
 @asynccontextmanager
-async def app_lifespan(app: FastMCP):
+async def app_lifespan(app: MCPServer):
     """Manage server lifecycle - startup and shutdown."""
     # Startup
     logger.info("Salla MCP Server starting up...")
@@ -31,11 +32,8 @@ async def app_lifespan(app: FastMCP):
  
 
 # Initialize MCP server
-mcp = FastMCP(
+mcp = MCPServer(
     "salla_mcp",
-    host="0.0.0.0",
-    stateless_http=True,
-    json_response=True,
     lifespan=app_lifespan,
 )
 
@@ -186,9 +184,31 @@ mcp.tool(
 
 # RUN SERVER
 
+def main() -> None:
+    """Run the v2 server over stdio or Streamable HTTP."""
+    parser = argparse.ArgumentParser(description="Run the Salla MCP server")
+    parser.add_argument(
+        "--transport",
+        choices=("stdio", "http"),
+        default="http",
+        help="MCP transport (default: http)",
+    )
+    parser.add_argument("--host", default=settings.mcp_host)
+    parser.add_argument("--port", type=int, default=settings.mcp_port)
+    args = parser.parse_args()
+
+    if args.transport == "stdio":
+        mcp.run(transport="stdio")
+        return
+
+    base_app = mcp.streamable_http_app(
+        streamable_http_path="/mcp",
+        stateless_http=True,
+        json_response=True,
+        host=args.host,
+    )
+    uvicorn.run(base_app, host=args.host, port=args.port)
+
+
 if __name__ == "__main__":
-
-    # Get the ASGI app from FastMCP
-    base_app = mcp.streamable_http_app()
-
-    uvicorn.run(base_app, host="0.0.0.0", port=8001)
+    main()

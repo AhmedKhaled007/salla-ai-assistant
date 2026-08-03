@@ -1,259 +1,103 @@
-"""MCP (Model Context Protocol) client for communicating with tool servers.
+"""Small MCP SDK v2 wrapper used by the demo agent."""
 
-This module implements the core agent logic:
-1. Connects to MCP servers (via HTTP or stdio)
-2. Maintains isolated sessions per user token
-3. Processes user queries using LLMs (via LiteLLM)
-4. Executes tools within the correct session context
-"""
+from __future__ import annotations
 
-from contextlib import AsyncExitStack
 import asyncio
+from contextlib import asynccontextmanager
 import json
-import os
-import contextvars
-import hashlib
-from typing import Optional, Any
-import httpx
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
-from mcp.client.streamable_http import streamablehttp_client
+from typing import Any, AsyncIterator
 
+import httpx2
+from mcp import Client
+from mcp.client.streamable_http import streamable_http_client
+from mcp.types import TextContent
 
-from agent.core import settings, logger
-from agent.services.conversation import ConversationService
-
-# Context for multi-tenant token isolation
-token_context: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("mcp_token", default=None)
+from agent.core import logger, settings
 
 
 class MCPClient:
-    """Singleton MCP client for communicating with tool servers.
+    """Create token-scoped MCP v2 clients for a query or health check."""
 
-    This client maintains isolated MCP sessions per user/token.
-    """
-
-    def __init__(self, transport: str = "http", server_url: Optional[str] = None):
-        """Initialize the MCP client.
-
-        Args:
-            transport: Transport type - 'stdio' (legacy/single-user) or 'http'
-            server_url: URL for HTTP transport
-        """
-        self.transport = transport
+    def __init__(self, server_url: str | None = None) -> None:
         self.server_url = server_url or settings.mcp_server_url
 
-        # Internal cache for user-specific sessions: {token_hash: (ClientSession, AsyncExitStack)}
-        self._sessions: dict[str, tuple[ClientSession, AsyncExitStack]] = {}
-
-        # Cached tool definitions (global)
-        self._cached_tools: Optional[list] = None
-        self._cached_openai_tools: Optional[list] = None
-
-        # Service for conversation persistence
-        self.conversation_service = ConversationService()
-
-    async def _remove_session(self, token: Optional[str] = None):
-        """Remove a session from the cache."""
-        token = token or token_context.get()
-        token_hash = self._get_token_hash(token)
-        if token_hash in self._sessions:
-            try:
-                session, stack = self._sessions.pop(token_hash)
-                logger.info(f"Removing session for token hash: {token_hash[:8]}")
-                # Add timeout to prevent hanging on cleanup
-                try:
-                    await asyncio.wait_for(stack.aclose(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    logger.warning(f"Timeout while closing session for {token_hash[:8]}")
-                except Exception as e:
-                    logger.warning(f"Error closing session for {token_hash[:8]}: {e}")
-            except Exception as e:
-                logger.error(f"Error removing session: {e}")
-
-    def _get_token_hash(self, token: Optional[str]) -> str:
-        """Hash token to use as session key."""
-        if not token:
-            return "anonymous"
-        return hashlib.sha256(token.encode()).hexdigest()
-
-    async def get_session(self, token: Optional[str] = None) -> ClientSession:
-        """Get or create an MCP session for the specific token context."""
-        token = token or token_context.get()
-        token_hash = self._get_token_hash(token)
-
-        if token_hash in self._sessions:
-            return self._sessions[token_hash][0]
-
-        logger.info(f"Establishing new MCP session for token hash: {token_hash[:8]}...")
-
-        if self.transport == "http":
-            headers = {}
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-
-            # Pre-check connectivity
-            try:
-                async with httpx.AsyncClient() as client:
-                    await client.head(self.server_url, timeout=2.0)
-            except Exception as e:
-                logger.warning(f"MCP server connectivity check failed: {e}")
-                # We still try to connect so streamablehttp_client can handle it properly if it was transient
-
-            # Create a dedicated exit stack for this session
-            stack = AsyncExitStack()
-
-            try:
-                read_stream, write_stream, _ = await stack.enter_async_context(
-                    streamablehttp_client(self.server_url, headers=headers)
-                )
-
-                session = await stack.enter_async_context(
-                    ClientSession(read_stream, write_stream)
-                )
-
-                await session.initialize()
-            except Exception:
-                await stack.aclose()
-                raise
-        else:
-            # Create a dedicated exit stack for this session
-            stack = AsyncExitStack()
-
-            server_path = settings.server_script_path
-            env = os.environ.copy()
-            if token:
-                env["SALLA_ACCESS_TOKEN"] = token
-
-            server_params = StdioServerParameters(
-                command="python" if server_path.endswith('.py') else "node",
-                args=[server_path],
-                env=env
+    @asynccontextmanager
+    async def connect(self, token: str | None = None) -> AsyncIterator[Client]:
+        """Open a client and close it when the current operation finishes."""
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        async with httpx2.AsyncClient(
+            headers=headers,
+            timeout=httpx2.Timeout(30.0, read=300.0),
+            follow_redirects=True,
+        ) as http_client:
+            transport = streamable_http_client(
+                self.server_url,
+                http_client=http_client,
             )
+            async with Client(
+                transport,
+                mode="auto",
+                read_timeout_seconds=settings.tool_timeout,
+            ) as client:
+                yield client
 
-            try:
-                session = await stack.enter_async_context(stdio_client(server_params))
-                await session.initialize()
-            except Exception:
-                await stack.aclose()
-                raise
-
-        self._sessions[token_hash] = (session, stack)
-
-        # Ensure tools are loaded into global cache at least once
-        # using the first available session
-        if self._cached_tools is None:
-            await self._load_tools(token, session=session)
-
-        return session
-
-    async def execute_tool(
-        self,
-        tool_name: str,
-        tool_args: dict,
-        max_retries: int = 2,
-    ) -> str:
-        """Execute a tool call using the current context's session."""
-        for attempt in range(max_retries + 1):
-            try:
-                session = await self.get_session()
-                result = await asyncio.wait_for(
-                    session.call_tool(tool_name, tool_args),
-                    timeout=settings.tool_timeout
-                )
-                logger.info(f"Tool {tool_name} executed successfully, result: {result}")
-                # Check for tool execution errors
-                if getattr(result, 'isError', False):
-                    error_text = "\n".join([c.text for c in result.content if c.type == 'text']
-                                           ) if hasattr(result, 'content') else str(result)
-                    logger.error(f"Tool {tool_name} execution error: {error_text}")
-
-                if hasattr(result, 'content') and result.content:
-                    return "\n".join([c.text for c in result.content if c.type == 'text'])
-                return str(result)
-
-            except asyncio.TimeoutError:
-                if attempt < max_retries:
-                    logger.warning(f"Tool {tool_name} timed out, retrying...")
-                    await asyncio.sleep(0.5 * (attempt + 1))
-                else:
-                    raise asyncio.TimeoutError(f"Tool {tool_name} timed out")
-            except Exception as e:
-                logger.warning(f"Tool {tool_name} failed (attempt {attempt + 1}/{max_retries + 1}): {e}")
-                await self._remove_session()
-
-                if attempt < max_retries:
-                    logger.info("Retrying with new session...")
-                    await asyncio.sleep(0.5 * (attempt + 1))
-                else:
-                    raise
-
-        raise RuntimeError(f"Tool {tool_name} failed")
-
-    async def ping(self, token: Optional[str] = None) -> bool:
-        """Verify the MCP connection for the given token context.
-
-        This will attempt to establish a session if it doesn't exist,
-        and send a ping to verify the server is responsive.
-        """
-        try:
-            session = await self.get_session(token)
-            await session.send_ping()
-            return True
-        except Exception as e:
-            logger.error(f"MCP Connection check failed: {e}")
-            await self._remove_session(token)
-            return False
-
-    async def _load_tools(self, token: Optional[str] = None, session: Optional[Any] = None):
-        """Load and cache tool definitions."""
-        session = session or await self.get_session(token)
-        tools_result = await session.list_tools()
-        self._cached_tools = tools_result.tools
-
-        self._cached_openai_tools = [
+    async def get_openai_tools(self, client: Client) -> list[dict[str, Any]]:
+        """List tools once and convert them to the LLM function format."""
+        result = await client.list_tools()
+        return [
             {
                 "type": "function",
                 "function": {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.inputSchema
-                }
-            } for t in self._cached_tools
+                    "name": tool.name,
+                    "description": tool.description or tool.title or "",
+                    "parameters": tool.input_schema,
+                },
+            }
+            for tool in result.tools
         ]
 
-    async def get_mcp_tools(self, token: Optional[str] = None):
-        """Get available tools."""
-        if not self._cached_tools:
-            await self._load_tools(token)
-        return self._cached_tools
+    async def execute_tool(
+        self,
+        client: Client,
+        tool_name: str,
+        tool_args: dict[str, Any],
+    ) -> str:
+        """Call one MCP tool and return a string suitable for an LLM message."""
+        result = await client.call_tool(
+            tool_name,
+            tool_args,
+            read_timeout_seconds=settings.tool_timeout,
+        )
+        logger.info("MCP tool %s completed (is_error=%s)", tool_name, result.is_error)
 
-    def get_openai_tools(self) -> list:
-        """Get cached OpenAI-format tools."""
-        if self._cached_openai_tools is None:
-            raise RuntimeError("Tools not loaded. Call get_mcp_tools() first.")
-        return self._cached_openai_tools
+        if result.structured_content is not None:
+            return json.dumps(result.structured_content, ensure_ascii=False)
 
-    async def cleanup(self):
-        """Clean up all sessions."""
-        if not self._sessions:
-            return
+        text = [block.text for block in result.content if isinstance(block, TextContent)]
+        if text:
+            return "\n".join(text)
+        return result.model_dump_json(by_alias=True, exclude_none=True)
 
-        logger.info(f"Cleaning up {len(self._sessions)} active sessions...")
-        # Create a list of cleanups to run
-        cleanups = []
-        for token_hash, (session, stack) in list(self._sessions.items()):
-            cleanups.append(stack.aclose())
-
-        # Run all cleanups with timeout
-        if cleanups:
-            try:
-                await asyncio.wait_for(asyncio.gather(*cleanups, return_exceptions=True), timeout=10.0)
-            except asyncio.TimeoutError:
-                logger.warning("Timeout during MCP client cleanup")
-            except asyncio.CancelledError:
-                logger.warning("MCP client cleanup was cancelled during shutdown")
-            except Exception as e:
-                logger.error(f"Error during MCP client cleanup: {e}")
-
-        self._sessions.clear()
+    async def probe(self) -> dict[str, Any]:
+        """Check MCP availability using tools/list; modern MCP has no ping."""
+        try:
+            async with asyncio.timeout(5.0):
+                async with self.connect() as client:
+                    tools = await client.list_tools()
+                    server_name = client.server_info.name if client.server_info else None
+                    return {
+                        "connected": True,
+                        "protocol_version": client.protocol_version,
+                        "server_name": server_name,
+                        "tool_count": len(tools.tools),
+                    }
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            logger.warning("MCP probe failed: %s", type(error).__name__)
+            return {
+                "connected": False,
+                "protocol_version": None,
+                "server_name": None,
+                "tool_count": None,
+            }

@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     api_timeout: int = 30
     api_max_retries: int = 3
     logger_level: str = "INFO"
+    mcp_host: str = "0.0.0.0"
+    mcp_port: int = 8001
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 

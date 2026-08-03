@@ -3,7 +3,7 @@
 A **Model Context Protocol (MCP)** server that exposes Salla e-commerce API capabilities as programmable tools. This service acts as the integration layer, translating tool calls into secure requests to the Salla Admin API.
 
 ## 🤖 What is MCP?
-The [Model Context Protocol](https://modelcontextprotocol.io) creates a standard way for models to connect to data and tools. This server implements the "Server" side of the protocol, exposing Salla resources (Products, Orders, Customers) as tools.
+The [Model Context Protocol](https://modelcontextprotocol.io) creates a standard way for models to connect to data and tools. This server uses MCP Python SDK v2, negotiates protocol `2026-07-28`, and continues to serve legacy clients.
 
 ## 🛠️ Available Tools
 
@@ -31,7 +31,10 @@ The server currently exposes **12 tools** across 4 categories:
 
 ## ⚙️ Configuration
 
-The server is designed to be **stateless regarding user tokens**. The Salla OAuth Access Token must be passed **per request** (if using HTTP transport) or handled by the client context.
+The server is designed to be **stateless regarding user tokens**. The Salla OAuth Access Token must be passed **per request** for HTTP or through `SALLA_ACCESS_TOKEN` for stdio.
+
+The HTTP bearer-token forwarding is a trusted,network convention and
+does not implement the MCP OAuth authorization profile.
 
 ### Environment Variables (.env)
 
@@ -41,6 +44,10 @@ SALLA_API_BASE_URL=https://api.salla.dev/admin/v2
 
 # Request Timeouts
 API_TIMEOUT=30
+
+# MCP listener
+MCP_HOST=0.0.0.0
+MCP_PORT=8001
 ```
 
 ## 🚀 Running the Server
@@ -50,7 +57,7 @@ Run as a web service usable by MCP clients.
 
 ```bash
 # Using uv (Recommended)
-uv run python -m mcp_server.main --transport http --port 8001
+uv run python -m mcp_server.main --transport http --host 0.0.0.0 --port 8001
 ```
 
 ### 2. Stdio Transport (Development/CLI)
@@ -62,6 +69,6 @@ uv run python -m mcp_server.main --transport stdio
 
 ## 📦 Dependencies
 
-- **fastmcp**: High-level framework for building MCP servers.
+- **mcp 2.x**: Official MCP client/server SDK with `2026-07-28` support.
 - **httpx**: Async HTTP client for calling Salla API.
 - **pydantic**: Data validation.

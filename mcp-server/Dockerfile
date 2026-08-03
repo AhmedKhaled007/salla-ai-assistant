@@ -27,4 +27,4 @@ EXPOSE 8001
 ENV PYTHONUNBUFFERED=1
 
 # Run the MCP server
-CMD ["python", "-m", "mcp_server.main"]
+CMD ["python", "-m", "mcp_server.main", "--transport", "http"]

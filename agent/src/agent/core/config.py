@@ -5,7 +5,6 @@ All configuration is loaded from environment variables with sensible defaults.
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal
-from pathlib import Path
 
 
 class Settings(BaseSettings):
@@ -14,15 +13,13 @@ class Settings(BaseSettings):
     environment: Literal["development", "production", "test"] = "production"
     database_url: str
     # LLM Configuration
-    llm_model: str = "gemini/gemini-3-flash-preview"
+    llm_model: str = "gemini/gemini-3.1-flash-lite"
     llm_temperature: float = 1
     llm_max_retries: int = 3  # Max retry attempts for LLM calls
     llm_retry_delay: float = 1.0  # Base delay in seconds (exponential backoff)
 
     # MCP Server Configuration
-    server_script_path: str | None = None
-    mcp_transport: str = "http"  # Transport type: 'stdio' or 'http'
-    mcp_server_url: str = "http://localhost:8001/mcp"  # URL for HTTP transport
+    mcp_server_url: str = "http://localhost:8001/mcp"
 
     # API Server Configuration
     api_host: str = "127.0.0.1"
