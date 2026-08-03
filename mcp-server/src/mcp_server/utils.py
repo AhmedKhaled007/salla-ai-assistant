@@ -1,7 +1,7 @@
 """Shared utilities for the Salla MCP server."""
 import logging
-from typing import Any
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
+from .config import settings
 from .salla_client import SallaClient
 
 logger = logging.getLogger(__name__)
@@ -26,15 +26,20 @@ def get_salla_client(ctx: Context) -> SallaClient:
     Raises:
         ValueError: If no authorization token is found in the request
     """
+    request = None
     try:
         request = ctx.request_context.request
-        if request:
+        if request is not None:
             auth_header = request.headers.get("Authorization", "")
             if auth_header.lower().startswith("bearer "):
-                token = auth_header[7:]  # Remove "Bearer " prefix
-                return SallaClient(access_token=token)
+                token = auth_header[7:].strip()
+                if token:
+                    return SallaClient(access_token=token)
     except Exception as e:
         # If not in HTTP context (stdio transport), fall through to error
         logger.error(f"Error extracting token from context: {e}")
+
+    if request is None and settings.salla_access_token:
+        return SallaClient(access_token=settings.salla_access_token)
 
     raise ValueError("No authorization token found in request. Please authenticate first.")

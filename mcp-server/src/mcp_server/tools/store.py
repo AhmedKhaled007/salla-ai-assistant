@@ -1,5 +1,5 @@
 """Store tools for Salla MCP Server."""
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 
 from ..utils import get_salla_client, format_error
 
