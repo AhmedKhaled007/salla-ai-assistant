@@ -1,9 +1,9 @@
 # Salla MCP Server
 
-A **Model Context Protocol (MCP)** server that exposes Salla e-commerce API capabilities as AI-ready tools. This service acts as the integration layer, translating LLM tool calls into secure requests to the Salla Admin API.
+A **Model Context Protocol (MCP)** server that exposes Salla e-commerce API capabilities as programmable tools. This service acts as the integration layer, translating tool calls into secure requests to the Salla Admin API.
 
 ## 🤖 What is MCP?
-The [Model Context Protocol](https://modelcontextprotocol.io) creates a standard way for AI models to connect to data and tools. This server implements the "Server" side of the protocol, exposing Salla resources (Products, Orders, Customers) as tools.
+The [Model Context Protocol](https://modelcontextprotocol.io) creates a standard way for models to connect to data and tools. This server implements the "Server" side of the protocol, exposing Salla resources (Products, Orders, Customers) as tools.
 
 ## 🛠️ Available Tools
 
@@ -46,7 +46,7 @@ API_TIMEOUT=30
 ## 🚀 Running the Server
 
 ### 1. HTTP Transport (Production)
-Run as a web service usable by the Agent.
+Run as a web service usable by MCP clients.
 
 ```bash
 # Using uv (Recommended)
