@@ -25,8 +25,8 @@ class QueryProcessor:
         self.mcp_client = mcp_client
         self.conversation_service = ConversationService()
 
-    async def process_query(self, query: str, conversation_id: str | None = None, token: Optional[str] = None, user_id: Optional[int] = None) -> list:
-        """Process a user query using the LLM with tool access."""
+    async def process_query(self, query: str, conversation_id: str | None = None, token: Optional[str] = None, user_id: Optional[int] = None) -> tuple[str, list]:
+        """Process a query and return its conversation ID and messages."""
         # Set token in context if provided
         token_reset = None
         if token:
@@ -36,10 +36,14 @@ class QueryProcessor:
             # Ensure connection for this context
             await self.mcp_client.ping()
 
-            # Load or initialize conversation
+            # Load an existing conversation or create one for this query.
             messages = []
             if conversation_id:
                 messages = await self.conversation_service.get_history(conversation_id)
+            else:
+                if user_id is None:
+                    raise ValueError("user_id is required when creating a conversation")
+                conversation_id = await self.conversation_service.create_conversation(user_id=user_id)
 
             if not messages:
                 messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -64,9 +68,6 @@ class QueryProcessor:
                         tool_args = json.loads(tool_call.function.arguments)
 
                         logger.info(f"Executing tool: {tool_name}")
-                        # We need to access execute_tool on mcp_client. 
-                        # mcp_client._execute_tool_with_retry was private. We should make it public or expose a wrapper.
-                        # For now, let's assume we rename it to execute_tool in mcp_client.
                         tool_output = await self.mcp_client.execute_tool(tool_name, tool_args)
 
                         messages.append({
@@ -85,11 +86,10 @@ class QueryProcessor:
                 messages.append(
                     {"role": "assistant", "content": "I'm sorry, I needed too many steps to complete this request."})
 
-            if conversation_id:
-                await self.conversation_service.save_history(conversation_id, messages)
-                await self._log_conversation(conversation_id, messages)
+            await self.conversation_service.save_history(conversation_id, messages)
+            await self._log_conversation(conversation_id, messages)
 
-            return [msg for msg in messages if msg.get("role") != "system"]
+            return conversation_id, [msg for msg in messages if msg.get("role") != "system"]
 
         finally:
             if token_reset:

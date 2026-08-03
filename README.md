@@ -189,6 +189,3 @@ If you prefer running services locally without Docker (e.g., for debugging):
 
 ---
 
-## 📄 License
-
-This project is licensed under the MIT License.

@@ -11,7 +11,7 @@ dependencies = [
     "fastapi>=0.128.0",
     "httpx>=0.28.1",
     "litellm>=1.80.17",
-    "mcp>=1.25.0",
+    "mcp==1.25.0",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.0.0",
     "sqlalchemy>=2.0.45",

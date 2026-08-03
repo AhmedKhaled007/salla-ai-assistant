@@ -194,10 +194,10 @@ async def test_health_check(async_client):
 async def test_process_query(async_client):
     """Test query processing endpoint."""
     client, mock_qp = async_client
-    mock_qp.process_query = AsyncMock(return_value=[
+    mock_qp.process_query = AsyncMock(return_value=("new-conversation-id", [
         {"role": "user", "content": "Hello"},
         {"role": "assistant", "content": "Hello!"}
-    ])
+    ]))
 
     response = await client.post(
         "/api/query",
@@ -206,6 +206,7 @@ async def test_process_query(async_client):
 
     assert response.status_code == 200
     data = response.json()
+    assert data["conversation_id"] == "new-conversation-id"
     assert len(data["messages"]) == 2
     mock_qp.process_query.assert_called_once()
 
@@ -214,9 +215,9 @@ async def test_process_query(async_client):
 async def test_process_query_with_conversation(async_client):
     """Test query with existing conversation ID."""
     client, mock_qp = async_client
-    mock_qp.process_query = AsyncMock(return_value=[
+    mock_qp.process_query = AsyncMock(return_value=("existing-id", [
         {"role": "assistant", "content": "Continued"}
-    ])
+    ]))
 
     response = await client.post(
         "/api/query",

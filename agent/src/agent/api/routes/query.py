@@ -22,7 +22,7 @@ async def process_query(
     """Process a query and return the response.
 
     Uses QueryProcessor service to process queries with token isolation.
-    If conversation_id is provided, continues the existing conversation.
+    Creates a conversation when conversation_id is omitted; otherwise continues it.
     If auth_session_id is provided (via header), uses the user's OAuth token.
     """
     query_processor = get_query_processor(req)
@@ -33,13 +33,13 @@ async def process_query(
         access_token = await get_valid_access_token(auth_session_id)
 
     try:
-        messages = await query_processor.process_query(
+        conversation_id, messages = await query_processor.process_query(
             request.query,
             request.conversation_id,
             token=access_token,
             user_id=await get_user_id(auth_session_id) if auth_session_id else None
         )
-        return {"messages": messages}
+        return {"conversation_id": conversation_id, "messages": messages}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

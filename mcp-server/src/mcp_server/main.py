@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # LIFESPAN MANAGEMENT
 
 @asynccontextmanager
-async def app_lifespan():
+async def app_lifespan(app: FastMCP):
     """Manage server lifecycle - startup and shutdown."""
     # Startup
     logger.info("Salla MCP Server starting up...")
@@ -28,7 +28,7 @@ async def app_lifespan():
     # Shutdown
     logger.info("Salla MCP Server shutting down...")
     await close_shared_client()
-
+ 
 
 # Initialize MCP server
 mcp = FastMCP(

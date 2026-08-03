@@ -29,6 +29,8 @@ services:
       - ENVIRONMENT=development
       - API_HOST=0.0.0.0
       - MCP_SERVER_URL=http://mcp-server:8001/mcp
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
     volumes:
       - agent-conversations:/app/conversations
       - ./agent/src:/app/src
@@ -74,7 +76,7 @@ services:
         # Vite requires env vars at build time
         VITE_API_URL: http://127.0.0.1:8000
     ports:
-      - "3000:3000"
+      - "3020:3000"
 
     networks:
       - salla-network
