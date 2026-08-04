@@ -1,4 +1,5 @@
 from agent.services import ConversationService
+from agent.services.conversation import exclude_system_messages
 from agent.api.dependencies import get_user_id
 from fastapi import APIRouter, HTTPException, Depends
 
@@ -34,7 +35,7 @@ async def get_conversation(
         raise HTTPException(status_code=403, detail="Access denied")
 
     messages = await service.get_history(conversation_id)
-    return {"messages": messages}
+    return {"messages": exclude_system_messages(messages)}
 
 
 @router.delete("/conversations/{conversation_id}")

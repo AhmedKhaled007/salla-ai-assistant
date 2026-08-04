@@ -4,6 +4,11 @@ from agent.core import get_conversation_repository, logger
 from agent.services.llm import call_llm
 
 
+def exclude_system_messages(messages: list) -> list:
+    """Return conversation messages that are safe to expose through the API."""
+    return [message for message in messages if message.get("role") != "system"]
+
+
 class ConversationService:
     """Service for managing conversation lifecycle and history."""
 

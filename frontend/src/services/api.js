@@ -4,13 +4,6 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 /**
  * Send a query to the AI agent (non-streaming)
  * @param {string} query - The user's query
- * @param {string|null} sessionId - Optional conversation session ID
- * @param {string|null} authSessionId - Optional OAuth session ID for authentication
- * @returns {Promise<{session_id: string, messages: Array}>} - The response
- */
-/**
- * Send a query to the AI agent (non-streaming)
- * @param {string} query - The user's query
  * @param {string|null} conversationId - Optional conversation ID
  * @param {string|null} authSessionId - Optional OAuth session ID for authentication
  * @returns {Promise<{conversation_id: string, messages: Array}>} - The response
@@ -48,11 +41,13 @@ export async function sendQuery(query, conversationId = null, authSessionId = nu
  * @param {string|null} authSessionId - Optional OAuth session ID for authentication
  * @param {object} callbacks - Event callbacks
  * @param {function} callbacks.onConversation - Called with conversation_id
- * @param {function} callbacks.onToolCall - Called with {tool_name, tool_args}
- * @param {function} callbacks.onToolResult - Called with {tool_name, result}
+ * @param {function} callbacks.onTitle - Called with the generated conversation title
+ * @param {function} callbacks.onToolCall - Called with {toolName, toolArgs}
+ * @param {function} callbacks.onToolResult - Called with {toolName, result}
+ * @param {function} callbacks.onResponseChunk - Called with streamed response text
  * @param {function} callbacks.onResponse - Called with response content
  * @param {function} callbacks.onError - Called with error message
- * @param {function} callbacks.onDone - Called when complete
+ * @param {function} callbacks.onDone - Called with conversation_id when complete
  * @returns {Promise<void>}
  */
 export async function sendQueryStream(query, conversationId = null, authSessionId = null, callbacks = {}) {
