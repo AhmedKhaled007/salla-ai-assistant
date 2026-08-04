@@ -1,6 +1,7 @@
 """Tests for the Agent Service."""
 
 import pytest
+import json
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
@@ -10,6 +11,7 @@ from agent.services import MCPClient
 from agent.services.conversation import ConversationService
 from agent.main import app
 from agent.repositories import InMemoryTokenRepository
+from agent.api.routes.conversation import get_conversation as get_conversation_route
 
 
 # ============================================================================
@@ -184,6 +186,7 @@ async def test_process_query(async_client):
     """Test query processing endpoint."""
     client, mock_qp = async_client
     mock_qp.process_query = AsyncMock(return_value=("new-conversation-id", [
+        {"role": "system", "content": "secret instructions"},
         {"role": "user", "content": "Hello"},
         {"role": "assistant", "content": "Hello!"}
     ]))
@@ -197,6 +200,7 @@ async def test_process_query(async_client):
     data = response.json()
     assert data["conversation_id"] == "new-conversation-id"
     assert len(data["messages"]) == 2
+    assert all(message["role"] != "system" for message in data["messages"])
     mock_qp.process_query.assert_called_once()
 
 
@@ -219,3 +223,53 @@ async def test_process_query_with_conversation(async_client):
     assert args[0] == "Continue"
     assert args[1] == "existing-id"
     assert kwargs["token"] == "test-token"
+
+
+@pytest.mark.asyncio
+async def test_process_query_stream_done_event_uses_conversation_id(async_client):
+    client, mock_qp = async_client
+
+    async def stream_events(*args, **kwargs):
+        yield {"type": "conversation", "conversation_id": "conversation-id"}
+        yield {
+            "type": "done",
+            "conversation_id": "conversation-id",
+            "messages": [
+                {"role": "system", "content": "secret instructions"},
+                {"role": "assistant", "content": "Hello"},
+            ],
+        }
+
+    mock_qp.process_query_stream.side_effect = stream_events
+
+    response = await client.post("/api/query/stream", json={"query": "Hello"})
+
+    assert response.status_code == 200
+    events = [
+        json.loads(line.removeprefix("data: "))
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert events[-1]["conversation_id"] == "conversation-id"
+    assert "session_id" not in events[-1]
+    assert events[-1]["messages"] == [
+        {"role": "assistant", "content": "Hello"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_excludes_system_messages():
+    service = MagicMock()
+    service.verify_ownership = AsyncMock(return_value=True)
+    service.get_history = AsyncMock(return_value=[
+        {"role": "system", "content": "secret instructions"},
+        {"role": "user", "content": "Hello"},
+    ])
+
+    with patch(
+        "agent.api.routes.conversation.ConversationService",
+        return_value=service,
+    ):
+        result = await get_conversation_route("conversation-id", user_id=1)
+
+    assert result == {"messages": [{"role": "user", "content": "Hello"}]}
