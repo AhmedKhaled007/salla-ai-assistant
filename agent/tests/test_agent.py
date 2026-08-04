@@ -9,6 +9,7 @@ from mcp.types import ListToolsResult, Tool
 
 from agent.services import MCPClient
 from agent.services.conversation import ConversationService
+from agent.services.query_processor import ConversationAccessError
 from agent.main import app
 from agent.repositories import InMemoryTokenRepository
 from agent.api.routes.conversation import get_conversation as get_conversation_route
@@ -223,6 +224,26 @@ async def test_process_query_with_conversation(async_client):
     assert args[0] == "Continue"
     assert args[1] == "existing-id"
     assert kwargs["token"] == "test-token"
+
+
+@pytest.mark.asyncio
+async def test_process_query_rejects_inaccessible_conversation(async_client):
+    client, mock_qp = async_client
+    mock_qp.process_query = AsyncMock(
+        side_effect=ConversationAccessError(
+            "Conversation not found or access denied"
+        )
+    )
+
+    response = await client.post(
+        "/api/query",
+        json={"query": "Continue", "conversation_id": "forbidden-id"},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "Conversation not found or access denied"
+    }
 
 
 @pytest.mark.asyncio

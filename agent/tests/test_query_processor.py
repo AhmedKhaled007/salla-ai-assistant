@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agent.services.query_processor import QueryProcessor
+from agent.services.query_processor import ConversationAccessError, QueryProcessor
 
 
 def dependencies():
@@ -26,6 +26,7 @@ def dependencies():
         return_value="new-conversation-id"
     )
     conversation_service.get_history = AsyncMock(return_value=[])
+    conversation_service.verify_ownership = AsyncMock(return_value=True)
     conversation_service.save_history = AsyncMock()
     conversation_service.add_message = AsyncMock()
     conversation_service.generate_title = AsyncMock(return_value="Greeting")
@@ -96,12 +97,57 @@ async def test_process_query_loads_existing_conversation_and_forwards_token():
         "Continue",
         conversation_id="existing-id",
         token="merchant-token",
+        user_id=1,
     )
 
+    conversations.verify_ownership.assert_awaited_once_with("existing-id", 1)
     conversations.get_history.assert_awaited_once_with("existing-id")
     conversations.generate_title.assert_not_awaited()
     conversations.update_title.assert_not_awaited()
     mcp_client.connect.assert_called_once_with("merchant-token")
+
+
+@pytest.mark.asyncio
+async def test_process_query_rejects_conversation_owned_by_another_user():
+    processor, conversations, runner, mcp_client, _ = dependencies()
+    conversations.verify_ownership.return_value = False
+
+    with pytest.raises(
+        ConversationAccessError,
+        match="Conversation not found or access denied",
+    ):
+        await processor.process_query(
+            "Continue",
+            conversation_id="another-users-conversation",
+            user_id=1,
+        )
+
+    conversations.get_history.assert_not_awaited()
+    runner.run.assert_not_called()
+    mcp_client.connect.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_process_query_stream_rejects_conversation_owned_by_another_user():
+    processor, conversations, runner, mcp_client, _ = dependencies()
+    conversations.verify_ownership.return_value = False
+
+    events = [
+        event
+        async for event in processor.process_query_stream(
+            "Continue",
+            conversation_id="another-users-conversation",
+            user_id=1,
+        )
+    ]
+
+    assert events == [{
+        "type": "error",
+        "message": "Conversation not found or access denied",
+    }]
+    conversations.get_history.assert_not_awaited()
+    runner.stream.assert_not_called()
+    mcp_client.connect.assert_not_called()
 
 
 @pytest.mark.asyncio
