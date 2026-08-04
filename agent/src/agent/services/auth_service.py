@@ -181,7 +181,7 @@ async def store_tokens(
     repo = _token_repo
 
     # Calculate expiry
-    expires_in = tokens.get("expires_in", 3600)
+    expires_in = int(tokens.get("expires_in", 3600))
 
     # Always include merchant info if available
     token_data = {
@@ -285,10 +285,15 @@ async def get_valid_access_token(session_id: str) -> Optional[str]:
             if refresh_token:
                 try:
                     new_tokens = await refresh_access_token(refresh_token)
-                    # Update storage
-                    # Preserve merchant info
+                    if not new_tokens.get("refresh_token"):
+                        new_tokens["refresh_token"] = refresh_token
                     merchant_info = token_data.get("merchant_info")
-                    await store_tokens(session_id, new_tokens, merchant_info)
+                    await store_tokens(
+                        session_id,
+                        new_tokens,
+                        merchant_info,
+                        user_id=token_data.get("user_id"),
+                    )
                     return new_tokens.get("access_token")
                 except Exception as e:
                     logger.error(f"Failed to refresh token for session {session_id}: {e}")

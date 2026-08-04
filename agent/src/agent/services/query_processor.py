@@ -16,6 +16,10 @@ from agent.services.mcp_client import MCPClient
 from agent.services.prompts import SYSTEM_PROMPT
 
 
+class ConversationAccessError(Exception):
+    """Raised when a conversation is not accessible to the current user."""
+
+
 class QueryProcessor:
     """Coordinate conversation lifecycle around an agent run."""
 
@@ -126,6 +130,9 @@ class QueryProcessor:
                 "conversation_id": conversation_id,
                 "messages": exclude_system_messages(completed_messages),
             }
+        except ConversationAccessError as error:
+            logger.warning("Conversation access denied")
+            yield {"type": "error", "message": str(error)}
         except Exception as error:
             logger.exception("Error in process_query_stream: %s", error)
             yield {"type": "error", "message": str(error)}
@@ -137,6 +144,17 @@ class QueryProcessor:
     ) -> tuple[list, str, bool]:
         messages = []
         if conversation_id:
+            if user_id is None:
+                raise ConversationAccessError(
+                    "Conversation not found or access denied"
+                )
+            if not await self.conversation_service.verify_ownership(
+                conversation_id,
+                user_id,
+            ):
+                raise ConversationAccessError(
+                    "Conversation not found or access denied"
+                )
             messages = await self.conversation_service.get_history(conversation_id)
         else:
             if user_id is None:

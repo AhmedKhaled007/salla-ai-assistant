@@ -55,6 +55,7 @@ class AuthSession(Base):
     access_token: Mapped[str] = mapped_column(String)
     refresh_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    retention_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     scope: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     merchant_info: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

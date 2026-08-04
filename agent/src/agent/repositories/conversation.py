@@ -10,6 +10,29 @@ from agent.core.database import AsyncSessionLocal
 from agent.core.models import Conversation, Message
 
 
+SERIALIZED_MESSAGE_PREFIX = "__salla_agent_message_v1__:"
+
+
+def _serialize_message(message: dict) -> str:
+    """Encode a complete message without conflating it with plain content."""
+    return SERIALIZED_MESSAGE_PREFIX + json.dumps(message, ensure_ascii=False)
+
+
+def _deserialize_message(message: Message) -> dict:
+    """Decode explicitly serialized messages and preserve all other content."""
+    content = message.content
+
+    if content.startswith(SERIALIZED_MESSAGE_PREFIX):
+        try:
+            parsed = json.loads(content.removeprefix(SERIALIZED_MESSAGE_PREFIX))
+            if isinstance(parsed, dict) and parsed.get("role") == message.role:
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return {"role": message.role, "content": content}
+
+
 class ConversationRepository(ABC):
     """Abstract base class for conversation storage."""
 
@@ -127,23 +150,10 @@ class SQLAlchemyConversationRepository(ConversationRepository):
 
             # Insert new messages
             for msg in messages_to_add:
-                # msg is a dict with 'role', 'content', and potentially 'tool_calls', etc.
-                role = msg.get("role")
-                content = msg.get("content")
-
-                # Check for tool result messages (need to preserve tool_call_id/name)
-                # or assistant messages with tool_calls (content is None/empty)
-                if role == "tool" or not content:
-                    # Serialize the entire message to preserve keys
-                    content = json.dumps(msg, ensure_ascii=False)
-                elif not isinstance(content, str):
-                    # If content is a complex object, serialize it
-                    content = json.dumps(content, ensure_ascii=False)
-
                 message = Message(
                     conversation_id=conversation_id,
                     role=msg.get("role"),
-                    content=content
+                    content=_serialize_message(msg),
                 )
                 session.add(message)
 
@@ -152,17 +162,11 @@ class SQLAlchemyConversationRepository(ConversationRepository):
     async def add_message(self, conversation_id: str, message: dict) -> None:
         async with AsyncSessionLocal() as session:
             role = message.get("role")
-            content = message.get("content")
-
-            if role == "tool" or not content:
-                content = json.dumps(message, ensure_ascii=False)
-            elif not isinstance(content, str):
-                content = json.dumps(content, ensure_ascii=False)
 
             msg_obj = Message(
                 conversation_id=conversation_id,
                 role=role,
-                content=content
+                content=_serialize_message(message),
             )
             session.add(msg_obj)
             await session.commit()
@@ -193,21 +197,7 @@ class SQLAlchemyConversationRepository(ConversationRepository):
             sorted_messages = sorted(conversation.messages, key=lambda m: m.created_at)
 
             for msg in sorted_messages:
-                content = msg.content
-                # Try to parse JSON content (for tool call messages that were serialized)
-                try:
-                    parsed = json.loads(content)
-                    if isinstance(parsed, dict) and "role" in parsed:
-                        # This was a serialized message (e.g., tool call), use it directly
-                        messages.append(parsed)
-                        continue
-                except (json.JSONDecodeError, TypeError):
-                    pass
-
-                messages.append({
-                    "role": msg.role,
-                    "content": content
-                })
+                messages.append(_deserialize_message(msg))
 
             return messages
 

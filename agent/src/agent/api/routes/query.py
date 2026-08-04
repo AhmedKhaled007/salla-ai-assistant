@@ -9,6 +9,7 @@ import json
 from agent.api.models import QueryRequest
 from agent.services import get_valid_access_token
 from agent.services.conversation import exclude_system_messages
+from agent.services.query_processor import ConversationAccessError
 from agent.api.dependencies import get_query_processor, get_user_id, get_auth_session_id
 
 router = APIRouter()
@@ -42,6 +43,8 @@ async def process_query(
             "conversation_id": conversation_id,
             "messages": exclude_system_messages(messages),
         }
+    except ConversationAccessError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
