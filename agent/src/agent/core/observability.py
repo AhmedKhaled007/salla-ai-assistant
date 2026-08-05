@@ -69,6 +69,27 @@ def tool_call_span(
         yield span
 
 
+@contextmanager
+def agent_iteration_span(
+    tracer_provider: TracerProvider | None,
+    iteration: int,
+    messages: list,
+) -> Iterator[Any | None]:
+    """Trace one reasoning step in the agent's tool-calling loop."""
+    if tracer_provider is None:
+        yield None
+        return
+
+    tracer = tracer_provider.get_tracer("salla-agent")
+    with tracer.start_as_current_span(
+        "agent.iteration",
+        openinference_span_kind="chain",
+        attributes={"agent.iteration": iteration},
+    ) as span:
+        span.set_input(messages, mime_type="application/json")
+        yield span
+
+
 def _shutdown_observability(
     tracer_provider: TracerProvider | None,
     instrumentor: LiteLLMInstrumentor | None,

@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from agent.core import logger, settings
-from agent.core.observability import tool_call_span
+from agent.core.observability import agent_iteration_span, tool_call_span
 from agent.services.llm import call_llm
 
 
@@ -41,24 +41,36 @@ class AgentRunner:
         iteration_count = 0
 
         while iteration_count < self._max_iterations:
-            response = await call_llm(working_messages, tools=tools)
-            response_message = response.choices[0].message
-            tool_calls = getattr(response_message, "tool_calls", None)
+            with agent_iteration_span(
+                self._tracer_provider,
+                iteration_count + 1,
+                working_messages,
+            ) as span:
+                response = await call_llm(working_messages, tools=tools)
+                response_message = response.choices[0].message
+                tool_calls = getattr(response_message, "tool_calls", None)
 
-            if tool_calls:
-                working_messages.append(response_message.model_dump())
-                for tool_call in tool_calls:
-                    working_messages.append(
-                        await self._execute_tool(execute_tool, tool_call)
+                if tool_calls:
+                    if span is not None:
+                        span.set_output(tool_calls)
+                    working_messages.append(response_message.model_dump())
+                    for tool_call in tool_calls:
+                        working_messages.append(
+                            await self._execute_tool(execute_tool, tool_call)
+                        )
+                    iteration_count += 1
+                    continue
+
+                if span is not None:
+                    span.set_output(
+                        response_message.content,
+                        mime_type="text/plain",
                     )
-                iteration_count += 1
-                continue
-
-            working_messages.append({
-                "role": "assistant",
-                "content": response_message.content,
-            })
-            return working_messages
+                working_messages.append({
+                    "role": "assistant",
+                    "content": response_message.content,
+                })
+                return working_messages
 
         working_messages.append({
             "role": "assistant",
@@ -77,51 +89,67 @@ class AgentRunner:
         iteration_count = 0
 
         while iteration_count < self._max_iterations:
-            response = await call_llm(
+            with agent_iteration_span(
+                self._tracer_provider,
+                iteration_count + 1,
                 working_messages,
-                tools=tools,
-                stream=True,
-            )
-            current_content = ""
-            tool_calls_buffer = {}
+            ) as span:
+                response = await call_llm(
+                    working_messages,
+                    tools=tools,
+                    stream=True,
+                )
+                current_content = ""
+                tool_calls_buffer = {}
 
-            async for chunk in response:
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta
-                if delta.content:
-                    current_content += delta.content
-                    yield {"type": "response_chunk", "chunk": delta.content}
-                if delta.tool_calls:
-                    self._merge_tool_call_chunks(tool_calls_buffer, delta.tool_calls)
+                async for chunk in response:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        current_content += delta.content
+                        yield {"type": "response_chunk", "chunk": delta.content}
+                    if delta.tool_calls:
+                        self._merge_tool_call_chunks(tool_calls_buffer, delta.tool_calls)
 
-            tool_calls = [tool_calls_buffer[index] for index in sorted(tool_calls_buffer)]
-            assistant_message = {
-                "role": "assistant",
-                "content": current_content or None,
-            }
-            if tool_calls:
-                assistant_message["tool_calls"] = tool_calls
-            working_messages.append(assistant_message)
-            yield {"type": "message", "message": assistant_message}
-
-            if not tool_calls:
-                yield {"type": "response", "content": current_content}
-                yield {"type": "complete", "messages": working_messages}
-                return
-
-            for tool_call in tool_calls:
-                name, arguments, _ = self._parse_tool_call(tool_call)
-                yield {"type": "tool_call", "tool_name": name, "tool_args": arguments}
-                tool_message = await self._execute_tool(execute_tool, tool_call)
-                yield {
-                    "type": "tool_result",
-                    "tool_name": name,
-                    "result": tool_message["content"],
+                tool_calls = [
+                    tool_calls_buffer[index]
+                    for index in sorted(tool_calls_buffer)
+                ]
+                assistant_message = {
+                    "role": "assistant",
+                    "content": current_content or None,
                 }
-                working_messages.append(tool_message)
-                yield {"type": "message", "message": tool_message}
-            iteration_count += 1
+                if tool_calls:
+                    assistant_message["tool_calls"] = tool_calls
+                working_messages.append(assistant_message)
+                yield {"type": "message", "message": assistant_message}
+
+                if not tool_calls:
+                    if span is not None:
+                        span.set_output(current_content, mime_type="text/plain")
+                    yield {"type": "response", "content": current_content}
+                    yield {"type": "complete", "messages": working_messages}
+                    return
+
+                if span is not None:
+                    span.set_output(tool_calls, mime_type="application/json")
+                for tool_call in tool_calls:
+                    name, arguments, _ = self._parse_tool_call(tool_call)
+                    yield {
+                        "type": "tool_call",
+                        "tool_name": name,
+                        "tool_args": arguments,
+                    }
+                    tool_message = await self._execute_tool(execute_tool, tool_call)
+                    yield {
+                        "type": "tool_result",
+                        "tool_name": name,
+                        "result": tool_message["content"],
+                    }
+                    working_messages.append(tool_message)
+                    yield {"type": "message", "message": tool_message}
+                iteration_count += 1
 
         fallback_message = {
             "role": "assistant",
