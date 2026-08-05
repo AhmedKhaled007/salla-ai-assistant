@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 from agent.core import logger, settings
+from agent.core.observability import tool_call_span
 from agent.services.llm import call_llm
 
 
@@ -21,10 +23,12 @@ class AgentRunner:
     def __init__(
         self,
         max_iterations: int | None = None,
+        tracer_provider: Any | None = None,
     ) -> None:
         self._max_iterations = (
             max_iterations if max_iterations is not None else settings.max_iterations
         )
+        self._tracer_provider = tracer_provider
 
     async def run(
         self,
@@ -128,15 +132,17 @@ class AgentRunner:
         yield {"type": "response", "content": MAX_ITERATIONS_MESSAGE}
         yield {"type": "complete", "messages": working_messages}
 
-    @classmethod
     async def _execute_tool(
-        cls,
+        self,
         execute_tool,
         tool_call,
     ) -> dict:
-        name, arguments, tool_call_id = cls._parse_tool_call(tool_call)
+        name, arguments, tool_call_id = self._parse_tool_call(tool_call)
         logger.info("Executing tool: %s", name)
-        output = await execute_tool(name, arguments)
+        with tool_call_span(self._tracer_provider, name, arguments) as span:
+            output = await execute_tool(name, arguments)
+            if span is not None:
+                span.set_output(output, mime_type="application/json")
         return {
             "role": "tool",
             "name": name,

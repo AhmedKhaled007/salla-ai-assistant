@@ -11,8 +11,10 @@ def get_mcp_client(request: Request) -> MCPClient:
 
 def get_query_processor(request: Request) -> QueryProcessor:
     """Dependency to get QueryProcessor."""
-    # We can perform dependency injection here
-    return QueryProcessor(request.app.state.mcp_client)
+    return QueryProcessor(
+        request.app.state.mcp_client,
+        tracer_provider=request.app.state.tracer_provider,
+    )
 
 
 async def get_auth_session_id(

@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     conversation_log_enabled: bool = False
     conversation_log_dir: str = "conversations"
 
+    # Phoenix tracing configuration
+    phoenix_enabled: bool = False
+    phoenix_collector_endpoint: str = ""
+    phoenix_base_url: str = ""
+    phoenix_project_name: str = "salla-agent"
 
 # Global settings instance
 settings = Settings()

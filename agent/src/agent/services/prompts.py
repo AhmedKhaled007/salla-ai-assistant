@@ -1,5 +1,7 @@
 """System prompts for the Salla AI assistant."""
 
+SYSTEM_PROMPT_VERSION = "1.0.0"
+
 SYSTEM_PROMPT = """You are a helpful AI assistant for Salla e-commerce platform.
 Your role is to help Salla business owners, merchants, and users manage their online shops.
 

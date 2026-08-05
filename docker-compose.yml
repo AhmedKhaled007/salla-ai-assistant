@@ -29,6 +29,11 @@ services:
       - ENVIRONMENT=development
       - API_HOST=0.0.0.0
       - MCP_SERVER_URL=http://mcp-server:8001/mcp
+      - PHOENIX_ENABLED=true
+      - PHOENIX_COLLECTOR_ENDPOINT=http://phoenix:6006/v1/traces
+      - PHOENIX_BASE_URL=http://phoenix:6006
+      - PHOENIX_PROJECT_NAME=salla-agent-dev
+      - PHOENIX_PROTOCOL=http/protobuf
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
     volumes:
@@ -76,7 +81,7 @@ services:
         # Vite requires env vars at build time
         VITE_API_URL: http://127.0.0.1:8000
     ports:
-      - "3020:3000"
+      - "3000:3000"
 
     networks:
       - salla-network
@@ -88,10 +93,24 @@ services:
       retries: 3
       start_period: 10s
 
+  phoenix:
+    image: arizephoenix/phoenix:version-19.13.0
+    environment:
+      - PHOENIX_WORKING_DIR=/mnt/data
+    ports:
+      - "6006:6006"  # UI and OTLP HTTP collector
+      - "4317:4317"  # OTLP gRPC collector
+    volumes:
+      - phoenix_data:/mnt/data
+    networks:
+      - salla-network
+    restart: unless-stopped
+
 networks:
   salla-network:
     driver: bridge
 
 volumes:
   agent-conversations:
+  phoenix_data:
   postgres_data:

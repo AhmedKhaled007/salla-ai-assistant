@@ -6,18 +6,43 @@ import json
 import os
 from collections.abc import AsyncGenerator
 from datetime import datetime
+from typing import Any
 
 import aiofiles
 
 from agent.core import logger, settings
+from agent.core.observability import agent_turn_span
 from agent.services.agent_runner import AgentRunner
 from agent.services.conversation import ConversationService, exclude_system_messages
 from agent.services.mcp_client import MCPClient
-from agent.services.prompts import SYSTEM_PROMPT
+from agent.services.prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_VERSION
 
 
 class ConversationAccessError(Exception):
     """Raised when a conversation is not accessible to the current user."""
+
+
+def _finish_agent_span(span, messages: list) -> None:
+    """Attach the final response and a small trajectory summary."""
+    final_answer = messages[-1].get("content") or ""
+    if span is not None:
+        span.set_output(final_answer, mime_type="text/plain")
+        span.set_attribute(
+            "agent.iterations",
+            sum(
+                1
+                for message in messages
+                if isinstance(message, dict) and message.get("tool_calls")
+            ),
+        )
+        span.set_attribute(
+            "agent.tool_call.count",
+            sum(
+                len(message.get("tool_calls") or [])
+                for message in messages
+                if isinstance(message, dict)
+            ),
+        )
 
 
 class QueryProcessor:
@@ -26,10 +51,12 @@ class QueryProcessor:
     def __init__(
         self,
         mcp_client: MCPClient,
+        tracer_provider: Any | None = None,
     ) -> None:
         self.mcp_client = mcp_client
         self.conversation_service = ConversationService()
-        self.agent_runner = AgentRunner()
+        self.agent_runner = AgentRunner(tracer_provider=tracer_provider)
+        self.tracer_provider = tracer_provider
 
     async def process_query(
         self,
@@ -42,29 +69,41 @@ class QueryProcessor:
         messages, conversation_id, needs_initialization = (
             await self._prepare_conversation(conversation_id, user_id)
         )
-        if needs_initialization:
-            await self._generate_title(conversation_id, query)
+        with agent_turn_span(
+            self.tracer_provider,
+            conversation_id=conversation_id,
+            query=query,
+            model=settings.llm_model,
+            prompt_version=SYSTEM_PROMPT_VERSION,
+            mode="non_streaming",
+        ) as span:
+            if needs_initialization:
+                await self._generate_title(conversation_id, query)
 
-        messages.append({"role": "user", "content": query})
+            messages.append({"role": "user", "content": query})
 
-        async with self.mcp_client.connect(token) as mcp_connection:
-            tools = await self.mcp_client.get_openai_tools(mcp_connection)
+            async with self.mcp_client.connect(token) as mcp_connection:
+                tools = await self.mcp_client.get_openai_tools(mcp_connection)
 
-            async def execute_tool(name, arguments):
-                return await self.mcp_client.execute_tool(
-                    mcp_connection,
-                    name,
-                    arguments,
+                async def execute_tool(name, arguments):
+                    return await self.mcp_client.execute_tool(
+                        mcp_connection,
+                        name,
+                        arguments,
+                    )
+
+                completed_messages = await self.agent_runner.run(
+                    messages,
+                    tools,
+                    execute_tool,
                 )
 
-            completed_messages = await self.agent_runner.run(
-                messages,
-                tools,
-                execute_tool,
+            await self.conversation_service.save_history(
+                conversation_id,
+                completed_messages,
             )
-
-        await self.conversation_service.save_history(conversation_id, completed_messages)
-        await self._log_conversation(conversation_id, completed_messages)
+            await self._log_conversation(conversation_id, completed_messages)
+            _finish_agent_span(span, completed_messages)
 
         return conversation_id, exclude_system_messages(completed_messages)
 
@@ -83,53 +122,65 @@ class QueryProcessor:
                 needs_initialization,
             ) = await self._prepare_conversation(conversation_id, user_id)
 
-            yield {"type": "conversation", "conversation_id": conversation_id}
+            with agent_turn_span(
+                self.tracer_provider,
+                conversation_id=conversation_id,
+                query=query,
+                model=settings.llm_model,
+                prompt_version=SYSTEM_PROMPT_VERSION,
+                mode="streaming",
+            ) as span:
+                yield {"type": "conversation", "conversation_id": conversation_id}
 
-            if needs_initialization:
+                if needs_initialization:
+                    await self.conversation_service.add_message(
+                        conversation_id,
+                        messages[0],
+                    )
+                    title = await self._generate_title(conversation_id, query)
+                    if title:
+                        yield {"type": "title", "title": title}
+
+                user_message = {"role": "user", "content": query}
+                messages.append(user_message)
                 await self.conversation_service.add_message(
                     conversation_id,
-                    messages[0],
+                    user_message,
                 )
-                title = await self._generate_title(conversation_id, query)
-                if title:
-                    yield {"type": "title", "title": title}
 
-            user_message = {"role": "user", "content": query}
-            messages.append(user_message)
-            await self.conversation_service.add_message(conversation_id, user_message)
+                completed_messages = messages
+                async with self.mcp_client.connect(token) as mcp_connection:
+                    tools = await self.mcp_client.get_openai_tools(mcp_connection)
 
-            completed_messages = messages
-            async with self.mcp_client.connect(token) as mcp_connection:
-                tools = await self.mcp_client.get_openai_tools(mcp_connection)
-
-                async def execute_tool(name, arguments):
-                    return await self.mcp_client.execute_tool(
-                        mcp_connection,
-                        name,
-                        arguments,
-                    )
-
-                async for event in self.agent_runner.stream(
-                    messages,
-                    tools,
-                    execute_tool,
-                ):
-                    if event["type"] == "message":
-                        await self.conversation_service.add_message(
-                            conversation_id,
-                            event["message"],
+                    async def execute_tool(name, arguments):
+                        return await self.mcp_client.execute_tool(
+                            mcp_connection,
+                            name,
+                            arguments,
                         )
-                    elif event["type"] == "complete":
-                        completed_messages = event["messages"]
-                    else:
-                        yield event
 
-            await self._log_conversation(conversation_id, completed_messages)
-            yield {
-                "type": "done",
-                "conversation_id": conversation_id,
-                "messages": exclude_system_messages(completed_messages),
-            }
+                    async for event in self.agent_runner.stream(
+                        messages,
+                        tools,
+                        execute_tool,
+                    ):
+                        if event["type"] == "message":
+                            await self.conversation_service.add_message(
+                                conversation_id,
+                                event["message"],
+                            )
+                        elif event["type"] == "complete":
+                            completed_messages = event["messages"]
+                        else:
+                            yield event
+
+                await self._log_conversation(conversation_id, completed_messages)
+                _finish_agent_span(span, completed_messages)
+                yield {
+                    "type": "done",
+                    "conversation_id": conversation_id,
+                    "messages": exclude_system_messages(completed_messages),
+                }
         except ConversationAccessError as error:
             logger.warning("Conversation access denied")
             yield {"type": "error", "message": str(error)}

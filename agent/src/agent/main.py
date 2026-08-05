@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from agent.core import settings, logger
+from agent.core.observability import phoenix_observability
 from agent.services import MCPClient
 from agent.api import api_router
 from agent.api.middleware import rate_limit_middleware, setup_cors
@@ -20,15 +21,11 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     logger.info("Starting up Salla AI Agent...")
-
-
-
-    # Store MCPClient in app state
     app.state.mcp_client = MCPClient(server_url=settings.mcp_server_url)
 
-    yield
-
-    logger.info("Shutting down Salla AI Agent...")
+    with phoenix_observability(settings) as tracer_provider:
+        app.state.tracer_provider = tracer_provider
+        yield
 
 
 app = FastAPI(title="Salla AI Agent API", lifespan=lifespan)
