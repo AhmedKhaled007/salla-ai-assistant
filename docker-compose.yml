@@ -39,6 +39,7 @@ services:
     volumes:
       - agent-conversations:/app/conversations
       - ./agent/src:/app/src
+      - ./agent/evals:/app/evals:ro
     depends_on:
       - mcp-server
       - db
@@ -51,6 +52,35 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+  eval:
+    profiles:
+      - eval
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    env_file:
+      - ./agent/.env
+    environment:
+      - ENVIRONMENT=development
+      - MCP_SERVER_URL=http://mcp-server:8001/mcp
+      - PHOENIX_ENABLED=true
+      - PHOENIX_COLLECTOR_ENDPOINT=http://phoenix:6006/v1/traces
+      - PHOENIX_BASE_URL=http://phoenix:6006
+      - PHOENIX_PROJECT_NAME=salla-agent-eval
+      - PHOENIX_PROTOCOL=http/protobuf
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    entrypoint: [ "python", "-m", "evals.run" ]
+    depends_on:
+      mcp-server:
+        condition: service_started
+      phoenix:
+        condition: service_healthy
+    volumes:
+      - ./agent/evals:/app/evals:ro
+    networks:
+      - salla-network
 
   # PostgreSQL Database
   db:
@@ -105,6 +135,7 @@ services:
     networks:
       - salla-network
     restart: unless-stopped
+
 
 networks:
   salla-network:

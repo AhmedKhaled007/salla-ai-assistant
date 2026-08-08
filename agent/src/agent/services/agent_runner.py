@@ -6,7 +6,8 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
-from agent.core import logger, settings
+from agent.core.config import settings
+from agent.core.logger import logger
 from agent.core.observability import agent_iteration_span, tool_call_span
 from agent.services.llm import call_llm
 

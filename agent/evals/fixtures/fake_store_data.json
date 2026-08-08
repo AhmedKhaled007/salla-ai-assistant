@@ -1,0 +1,60 @@
+{
+  "store": {
+    "id": 1001,
+    "name": "متجر التجربة",
+    "domain": "demo-store.salla.sa",
+    "currency": "SAR"
+  },
+  "products": [
+    {
+      "id": 101,
+      "name": "قهوة عربية",
+      "sku": "COFFEE-AR",
+      "price": 45.0,
+      "quantity": 20,
+      "status": "sale"
+    },
+    {
+      "id": 102,
+      "name": "English Notebook",
+      "sku": "NOTE-A5",
+      "price": 18.5,
+      "quantity": 0,
+      "status": "out"
+    }
+  ],
+  "orders": [
+    {
+      "id": 5001,
+      "customer_id": 201,
+      "customer_name": "Ahmed Ali",
+      "status": "under_review",
+      "total": 90.0,
+      "currency": "SAR"
+    },
+    {
+      "id": 5002,
+      "customer_id": 202,
+      "customer_name": "Sara Saleh",
+      "status": "completed",
+      "total": 18.5,
+      "currency": "SAR"
+    }
+  ],
+  "customers": [
+    {
+      "id": 201,
+      "first_name": "Ahmed",
+      "last_name": "Ali",
+      "email": "ahmed@example.test",
+      "mobile": "500000001"
+    },
+    {
+      "id": 202,
+      "first_name": "Sara",
+      "last_name": "Saleh",
+      "email": "sara@example.test",
+      "mobile": "500000002"
+    }
+  ]
+}
