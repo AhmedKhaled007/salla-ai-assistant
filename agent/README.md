@@ -21,7 +21,7 @@ DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/dbname
 
 # AI Configuration (LiteLLM)
 LLM_MODEL=gemini/gemini-3-flash-preview
-LLM_TEMPERATURE=1
+EVAL_MODEL=gemini/gemini-3-flash-preview
 GEMINI_API_KEY=your_gemini_api_key
 
 # MCP Connection (Integration Layer)
@@ -36,7 +36,22 @@ SALLA_REDIRECT_URI=http://localhost:3000/callback
 SECRET_KEY=your_secret_key
 API_HOST=0.0.0.0
 API_PORT=8000
+
+# Phoenix tracing (optional)
+PHOENIX_ENABLED=false
+PHOENIX_COLLECTOR_ENDPOINT=http://localhost:6006/v1/traces
+PHOENIX_BASE_URL=http://localhost:6006
+PHOENIX_PROJECT_NAME=salla-agent-dev
+PHOENIX_PROTOCOL=http/protobuf
 ```
+
+When `PHOENIX_ENABLED` is false or tracing initialization fails, the agent keeps
+running without telemetry. Docker Compose enables tracing against the bundled,
+persistent Phoenix service at `http://localhost:6006`.
+
+Each user turn is recorded as a `salla-agent` span and grouped by conversation
+ID in Phoenix Sessions. LiteLLM calls appear beneath the turn, while MCP calls
+appear as `mcp.<tool_name>` spans.
 
 ## 📦 Installation & Running
 
@@ -68,10 +83,10 @@ python -m agent.main
 
 ## 🧪 Testing
 
-Run the test suite with `pytest`:
+Run the agent and evaluation tests inside Docker from the repository root:
 
 ```bash
-uv run pytest
+docker compose run --rm --no-deps --entrypoint python agent -m pytest
 ```
 
 ## 🏗️ Architecture

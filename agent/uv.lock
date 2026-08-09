@@ -1868,6 +1868,8 @@ dependencies = [
     { name = "aiofiles" },
     { name = "aiosqlite" },
     { name = "alembic" },
+    { name = "arize-phoenix-client" },
+    { name = "arize-phoenix-evals" },
     { name = "arize-phoenix-otel" },
     { name = "asyncpg" },
     { name = "fastapi" },
@@ -1887,10 +1889,6 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
-eval = [
-    { name = "arize-phoenix-client" },
-    { name = "arize-phoenix-evals" },
-]
 
 [package.dev-dependencies]
 dev = [
@@ -1903,8 +1901,8 @@ requires-dist = [
     { name = "aiofiles", specifier = ">=24.0.0" },
     { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "alembic", specifier = ">=1.18.1" },
-    { name = "arize-phoenix-client", marker = "extra == 'eval'", specifier = "==2.13.0" },
-    { name = "arize-phoenix-evals", marker = "extra == 'eval'", specifier = "==3.3.0" },
+    { name = "arize-phoenix-client", specifier = "==2.13.0" },
+    { name = "arize-phoenix-evals", specifier = "==3.3.0" },
     { name = "arize-phoenix-otel", specifier = "==0.16.1" },
     { name = "asyncpg", specifier = ">=0.29.0" },
     { name = "fastapi", specifier = ">=0.128.0" },
@@ -1920,7 +1918,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0.45" },
     { name = "uvicorn", specifier = ">=0.30.0" },
 ]
-provides-extras = ["dev", "eval"]
+provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [

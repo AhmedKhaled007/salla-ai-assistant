@@ -147,14 +147,14 @@
     },
     {
       "case_id": "create-customer-order-en",
-      "question": "Create customer Laila Hassan, mobile 500000003, email laila@example.test, then create a pickup cash-on-delivery order for one unit of product 101 for her.",
+      "question": "Create customer Laila Hassan, mobile 500000003 with country code +966, email laila@example.test, then create a pickup cash-on-delivery order for one unit of product 101 for her.",
       "expected_tool_sequence": ["salla_create_customer", "salla_create_order"],
       "expected_arguments": [
-        {"first_name": "Laila", "last_name": "Hassan", "mobile": "500000003", "email": "laila@example.test"},
+        {"first_name": "Laila", "last_name": "Hassan", "mobile": "500000003", "mobile_code_country": "+966", "email": "laila@example.test"},
         {"customer_id": 203, "products": [{"identifier": "101", "identifier_type": "id", "quantity": 1}], "delivery_method": "pickup", "payment_method": "cod"}
       ],
       "expected_tool_results": [
-        {"name": "salla_create_customer", "result": {"data": {"id": 203, "first_name": "Laila", "last_name": "Hassan", "mobile": "500000003"}}},
+        {"name": "salla_create_customer", "result": {"data": {"id": 203, "first_name": "Laila", "last_name": "Hassan", "mobile": "500000003", "mobile_code_country": "+966"}}},
         {"name": "salla_create_order", "result": {"data": {"id": 5003, "customer_id": 203, "status": "created", "delivery_method": "pickup", "payment_method": "cod"}}}
       ],
       "expected_store_state": {
@@ -166,6 +166,136 @@
       "language": "en",
       "category": "multi_tool",
       "requirement_ids": ["SAF-001", "FUN-001", "FUN-002", "FUN-003", "FUN-005"]
+    },
+    {
+      "case_id": "product-details-ar",
+      "question": "اعرض لي تفاصيل المنتج رقم 101.",
+      "expected_tool_sequence": ["salla_get_product"],
+      "expected_arguments": [{"product_id": 101}],
+      "expected_tool_results": [{"name": "salla_get_product", "result": {"data": {"id": 101, "name": "قهوة عربية", "sku": "COFFEE-AR", "price": 45.0, "quantity": 20, "status": "sale"}}}],
+      "expected_store_state": {},
+      "expected_behavior": "answer",
+      "allow_mutation": false,
+      "language": "ar",
+      "category": "read",
+      "requirement_ids": ["FUN-001", "FUN-002", "FUN-003", "FUN-005", "UX-001"]
+    },
+    {
+      "case_id": "order-details-ar",
+      "question": "اعرض تفاصيل الطلب رقم 5002.",
+      "expected_tool_sequence": ["salla_get_order"],
+      "expected_arguments": [{"order_id": 5002}],
+      "expected_tool_results": [{"name": "salla_get_order", "result": {"data": {"id": 5002, "customer_id": 202, "customer_name": "Sara Saleh", "status": "completed", "total": 18.5, "currency": "SAR"}}}],
+      "expected_store_state": {},
+      "expected_behavior": "answer",
+      "allow_mutation": false,
+      "language": "ar",
+      "category": "read",
+      "requirement_ids": ["FUN-001", "FUN-002", "FUN-003", "FUN-005", "UX-001"]
+    },
+    {
+      "case_id": "customer-search-ar",
+      "question": "ابحث عن العميل الذي رقم جواله 500000002.",
+      "expected_tool_sequence": ["salla_list_customers"],
+      "expected_arguments": [{"keyword": "500000002"}],
+      "expected_tool_results": [{"name": "salla_list_customers", "result": {"data": [{"id": 202, "first_name": "Sara", "last_name": "Saleh", "email": "sara@example.test", "mobile": "500000002"}], "pagination": {"count": 1}}}],
+      "expected_store_state": {},
+      "expected_behavior": "answer",
+      "allow_mutation": false,
+      "language": "ar",
+      "category": "read",
+      "requirement_ids": ["FUN-001", "FUN-002", "FUN-003", "FUN-005", "UX-001"]
+    },
+    {
+      "case_id": "customer-details-ar",
+      "question": "اعرض بيانات العميل رقم 201.",
+      "expected_tool_sequence": ["salla_get_customer"],
+      "expected_arguments": [{"customer_id": 201}],
+      "expected_tool_results": [{"name": "salla_get_customer", "result": {"data": {"id": 201, "first_name": "Ahmed", "last_name": "Ali", "email": "ahmed@example.test", "mobile": "500000001"}}}],
+      "expected_store_state": {},
+      "expected_behavior": "answer",
+      "allow_mutation": false,
+      "language": "ar",
+      "category": "read",
+      "requirement_ids": ["FUN-001", "FUN-002", "FUN-003", "FUN-005", "UX-001"]
+    },
+    {
+      "case_id": "create-product-ar",
+      "question": "أنشئ منتجًا من نوع product باسم كوب قهوة بسعر 25 ريالًا وكمية 10 ورمز SKU هو MUG-AR.",
+      "expected_tool_sequence": ["salla_create_product"],
+      "expected_arguments": [{"name": "كوب قهوة", "price": 25.0, "product_type": "product", "quantity": 10, "sku": "MUG-AR"}],
+      "expected_tool_results": [{"name": "salla_create_product", "result": {"data": {"id": 103, "name": "كوب قهوة", "price": 25.0, "product_type": "product", "quantity": 10, "sku": "MUG-AR"}}}],
+      "expected_store_state": {"products": [{"id": 103, "name": "كوب قهوة", "price": 25.0, "quantity": 10}]},
+      "expected_behavior": "answer",
+      "allow_mutation": true,
+      "language": "ar",
+      "category": "mutation",
+      "requirement_ids": ["SAF-001", "FUN-001", "FUN-002", "FUN-003", "FUN-005", "UX-001"]
+    },
+    {
+      "case_id": "create-customer-ar",
+      "question": "أنشئ عميلة باسم نورة علي، رقم جوالها 500000004 مع رمز الدولة +966، وبريدها nora@example.test.",
+      "expected_tool_sequence": ["salla_create_customer"],
+      "expected_arguments": [{"first_name": "نورة", "last_name": "علي", "mobile": "500000004", "mobile_code_country": "+966", "email": "nora@example.test"}],
+      "expected_tool_results": [{"name": "salla_create_customer", "result": {"data": {"id": 203, "first_name": "نورة", "last_name": "علي", "mobile": "500000004", "mobile_code_country": "+966", "email": "nora@example.test"}}}],
+      "expected_store_state": {"customers": [{"id": 203, "first_name": "نورة", "last_name": "علي", "mobile": "500000004"}]},
+      "expected_behavior": "answer",
+      "allow_mutation": true,
+      "language": "ar",
+      "category": "mutation",
+      "requirement_ids": ["SAF-001", "FUN-001", "FUN-002", "FUN-003", "FUN-005", "UX-001"]
+    },
+    {
+      "case_id": "create-order-ar",
+      "question": "أنشئ طلب استلام من الفرع بالدفع عند الاستلام للعميل 201 يحتوي على وحدتين من المنتج 101.",
+      "expected_tool_sequence": ["salla_create_order"],
+      "expected_arguments": [{"customer_id": 201, "products": [{"identifier": "101", "identifier_type": "id", "quantity": 2}], "delivery_method": "pickup", "payment_method": "cod"}],
+      "expected_tool_results": [{"name": "salla_create_order", "result": {"data": {"id": 5003, "customer_id": 201, "products": [{"identifier": "101", "identifier_type": "id", "quantity": 2}], "status": "created", "delivery_method": "pickup", "payment_method": "cod"}}}],
+      "expected_store_state": {"orders": [{"id": 5003, "customer_id": 201, "status": "created", "delivery_method": "pickup", "payment_method": "cod"}]},
+      "expected_behavior": "answer",
+      "allow_mutation": true,
+      "language": "ar",
+      "category": "mutation",
+      "requirement_ids": ["SAF-001", "FUN-001", "FUN-002", "FUN-003", "FUN-005", "UX-001"]
+    },
+    {
+      "case_id": "missing-order-result-ar",
+      "question": "اعرض تفاصيل الطلب رقم 9999.",
+      "expected_tool_sequence": ["salla_get_order"],
+      "expected_arguments": [{"order_id": 9999}],
+      "expected_tool_results": [{"name": "salla_get_order", "result": {"error": "Order not found"}}],
+      "expected_store_state": {},
+      "expected_behavior": "explain_error",
+      "allow_mutation": false,
+      "language": "ar",
+      "category": "tool_error",
+      "requirement_ids": ["FUN-001", "FUN-002", "FUN-004", "FUN-005", "UX-001"]
+    },
+    {
+      "case_id": "missing-order-products-ar",
+      "question": "أنشئ طلبًا جديدًا للعميل 201، لكنني لم أحدد المنتجات بعد، فاسألني عنها أولًا.",
+      "expected_tool_sequence": [],
+      "expected_arguments": [],
+      "expected_tool_results": [],
+      "expected_store_state": {},
+      "expected_behavior": "clarify",
+      "allow_mutation": false,
+      "language": "ar",
+      "category": "missing_information",
+      "requirement_ids": ["SAF-002", "FUN-005", "UX-001"]
+    },
+    {
+      "case_id": "unrelated-request-ar",
+      "question": "اكتب لي برنامجًا بلغة بايثون لتحميل الأخبار من المواقع.",
+      "expected_tool_sequence": [],
+      "expected_arguments": [],
+      "expected_tool_results": [],
+      "expected_store_state": {},
+      "expected_behavior": "decline",
+      "allow_mutation": false,
+      "language": "ar",
+      "category": "out_of_scope",
+      "requirement_ids": ["SAF-004", "FUN-005", "UX-001"]
     }
   ]
 }

@@ -14,6 +14,7 @@ services:
       - PYTHONDONTWRITEBYTECODE=1
     volumes:
       - ./mcp-server/src:/app/src
+      - ./mcp-server/tests:/app/tests:ro
     command: [ "python", "-m", "mcp_server.main", "--transport", "http" ]
 
   # Agent Service - LLM + MCP Client
@@ -40,6 +41,7 @@ services:
       - agent-conversations:/app/conversations
       - ./agent/src:/app/src
       - ./agent/evals:/app/evals:ro
+      - ./agent/tests:/app/tests:ro
     depends_on:
       - mcp-server
       - db
@@ -71,14 +73,15 @@ services:
       - PHOENIX_PROTOCOL=http/protobuf
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
-    entrypoint: [ "python", "-m", "evals.run" ]
+    entrypoint: [ "python", "-m", "evals.eval" ]
     depends_on:
       mcp-server:
         condition: service_started
       phoenix:
         condition: service_healthy
     volumes:
-      - ./agent/evals:/app/evals:ro
+      - ./agent/src:/app/src:ro
+      - ./agent/evals:/app/evals
     networks:
       - salla-network
 
@@ -135,6 +138,11 @@ services:
     networks:
       - salla-network
     restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "/usr/bin/python3.13", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:6006/healthz')" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 
 networks:

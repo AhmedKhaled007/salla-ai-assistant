@@ -1,4 +1,4 @@
-"""Shared helpers for the Salla agent evaluation case sets."""
+"""Shared helpers for the Salla agent evaluation suite."""
 
 from __future__ import annotations
 
@@ -12,12 +12,6 @@ from agent.services.mcp_client import MCPClient
 EVALS_DIR = Path(__file__).parent
 DEFAULT_CASES = EVALS_DIR / "cases.json"
 DEFAULT_CONTRACT = EVALS_DIR / "evaluation_contract.json"
-QUICK_CASE_IDS = {
-    "store-info-ar",
-    "create-product-en",
-    "missing-product-fields-en",
-    "delete-product-ar",
-}
 
 
 async def load_tool_schemas() -> list[dict]:
@@ -29,7 +23,6 @@ async def load_tool_schemas() -> list[dict]:
 def load_and_validate_cases(
     cases_path: Path = DEFAULT_CASES,
     contract_path: Path = DEFAULT_CONTRACT,
-    case_set: str = "full",
 ) -> tuple[str, list[dict[str, Any]]]:
     payload = json.loads(cases_path.read_text(encoding="utf-8"))
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
@@ -65,13 +58,6 @@ def load_and_validate_cases(
         unknown = set(case["requirement_ids"]) - valid_requirements
         if unknown:
             raise ValueError(f"{case['case_id']} has unknown requirements: {sorted(unknown)}")
-    if case_set == "quick":
-        cases = [case for case in cases if case["case_id"] in QUICK_CASE_IDS]
-    elif case_set != "full":
-        raise ValueError(f"Unknown evaluation case set: {case_set}")
-    expected_count = 4 if case_set == "quick" else 12
-    if len(cases) != expected_count:
-        raise ValueError(f"The {case_set} case set must contain {expected_count} cases.")
     return payload["dataset_name"], cases
 
 

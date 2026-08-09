@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -15,8 +16,7 @@ import pandas as pd
 from phoenix.client import AsyncClient
 from phoenix.client.resources.datasets import Dataset
 from phoenix.client.resources.experiments.types import RanExperiment
-from phoenix.evals import LLM, bind_evaluator
-from phoenix.evals.metrics import ToolInvocationEvaluator, ToolSelectionEvaluator
+from phoenix.evals import ClassificationEvaluator, LLM, bind_evaluator
 
 from agent.core.config import settings
 from agent.core.observability import agent_turn_span, phoenix_observability
@@ -36,7 +36,7 @@ from evals.reporting import build_experiment_report, gate_exit_code, write_repor
 
 EVALS_DIR = Path(__file__).parent
 DEFAULT_FIXTURE = EVALS_DIR / "fixtures" / "fake_store_data.json"
-DEFAULT_REPORT = EVALS_DIR / "reports" / "latest.json"
+REPORTS_DIR = EVALS_DIR / "reports"
 MUTATION_TOOLS = {
     "salla_create_product",
     "salla_update_product",
@@ -106,67 +106,104 @@ def expected_tool_arguments_match(output: dict, expected: dict) -> bool:
     )
 
 
-def expected_tool_results_match(output: dict, expected: dict) -> bool:
-    expected_results = decode_json(expected.get("expected_tool_results"), [])
-    actual_results = (output or {}).get("tool_responses", [])
-    return bool(output) and len(actual_results) == len(expected_results) and all(
-        actual.get("name") == wanted.get("name")
-        and contains_expected(actual.get("result"), wanted.get("result"))
-        for actual, wanted in zip(actual_results, expected_results)
-    )
-
-
-def expected_store_state_matches(output: dict, expected: dict) -> bool:
+def expected_store_state_matches(output: dict, expected: dict) -> bool | dict[str, str]:
     expected_state = decode_json(expected.get("expected_store_state"), {})
+    if not expected_state:
+        return {"label": "not_applicable"}
     return bool(output) and contains_expected(output.get("store_state"), expected_state)
 
 
-def mutation_policy_matches(output: dict, expected: dict) -> bool:
+def mutation_policy_matches(output: dict, expected: dict) -> bool | dict[str, str]:
     allow_mutation = str(expected.get("allow_mutation", "false")).lower() == "true"
+    if allow_mutation:
+        return {"label": "not_applicable"}
     used_mutation = any(
         call.get("name") in MUTATION_TOOLS
         for call in (output or {}).get("tool_calls", [])
     )
-    return bool(output) and (allow_mutation or not used_mutation)
+    return bool(output) and not used_mutation
 
 
 def completed_within_iteration_limit(output: dict) -> bool:
     return bool(output) and not output.get("reached_max_iterations", False)
 
 
-def clarification_or_decline_matches(output: dict, expected: dict) -> bool:
+def clarification_or_decline_matches(output: dict, expected: dict) -> bool | dict[str, str]:
     behavior = expected.get("expected_behavior")
     if behavior not in {"clarify", "decline"}:
-        return True
+        return {"label": "not_applicable"}
     return bool(output) and not output.get("tool_calls") and bool(output.get("answer", "").strip())
 
 
-def response_language_matches(output: dict, metadata: dict) -> bool:
+def response_language_matches(output: dict, metadata: dict) -> bool | dict[str, str]:
+    if metadata.get("language") != "ar":
+        return {"label": "not_applicable"}
     if not output:
         return False
-    if metadata.get("language") != "ar":
-        return True
     answer = output.get("answer", "")
     return any("\u0600" <= character <= "\u06ff" for character in answer)
 
 
-def llm_as_judge_tool_evaluators(tools: list[dict]):
+def llm_as_judge_response_evaluators():
     judge_llm = LLM(provider="litellm", model=settings.eval_model)
-    input_mapping = {
-        "input": lambda row: row["input"]["question"],
-        "available_tools": lambda row: serialize_tool_definitions(tools),
-        "tool_selection": lambda row: serialize_tool_definitions(
+    shared_mapping = {
+        "question": lambda row: row["input"]["question"],
+        "expected_behavior": lambda row: row["expected"]["expected_behavior"],
+        "tool_calls": lambda row: serialize_tool_definitions(
             (row.get("output") or {}).get("tool_calls", [])
         ),
+        "tool_results": lambda row: serialize_tool_definitions(
+            (row.get("output") or {}).get("tool_responses", [])
+        ),
+        "answer": lambda row: (row.get("output") or {}).get("answer", ""),
     }
     return [
         bind_evaluator(
-            evaluator=ToolSelectionEvaluator(llm=judge_llm, temperature=0.0),
-            input_mapping=input_mapping,
+            evaluator=ClassificationEvaluator(
+                name="response_groundedness",
+                llm=judge_llm,
+                prompt_template=(
+                    "Evaluate whether the Salla merchant assistant's response is grounded "
+                    "in what actually happened.\n\n"
+                    "User request: {question}\n"
+                    "Expected behavior: {expected_behavior}\n"
+                    "Executed tool calls: {tool_calls}\n"
+                    "Tool results: {tool_results}\n"
+                    "Assistant response: {answer}\n\n"
+                    "Label correct when factual claims and claims of success or failure are "
+                    "supported by the tool results. For clarification or refusal responses, "
+                    "label correct when the assistant makes no unsupported claim that an "
+                    "operation was completed. Judge meaning, not exact wording."
+                ),
+                choices={"correct": 1.0, "incorrect": 0.0},
+                temperature=0.0,
+            ),
+            input_mapping=shared_mapping,
         ),
         bind_evaluator(
-            evaluator=ToolInvocationEvaluator(llm=judge_llm, temperature=0.0),
-            input_mapping=input_mapping,
+            evaluator=ClassificationEvaluator(
+                name="response_behavior",
+                llm=judge_llm,
+                prompt_template=(
+                    "Evaluate whether the Salla merchant assistant's response follows the "
+                    "expected behavior for the user request.\n\n"
+                    "User request: {question}\n"
+                    "Expected behavior: {expected_behavior}\n"
+                    "Assistant response: {answer}\n\n"
+                    "Behavior meanings: answer = directly answer or confirm the requested "
+                    "operation; explain_error = accurately explain that the operation or "
+                    "lookup failed; clarify = ask for the relevant missing information; "
+                    "decline = explain that the request is outside Salla store assistance. "
+                    "The response should be relevant and use the user's language. Judge "
+                    "meaning, not exact wording, and do not re-evaluate tool selection."
+                ),
+                choices={"correct": 1.0, "incorrect": 0.0},
+                temperature=0.0,
+            ),
+            input_mapping={
+                key: shared_mapping[key]
+                for key in ("question", "expected_behavior", "answer")
+            },
         ),
     ]
 
@@ -209,7 +246,6 @@ async def run_agent(input: dict, *, agent: AgentRunner, tools: list[dict] ,trace
 async def run_agent_experiment(
     phx_client: AsyncClient,
     dataset: Dataset,
-    case_set: str,
 ) -> RanExperiment:
     tools = await load_tool_schemas()
     with phoenix_observability(settings) as tracer_provider:
@@ -227,22 +263,20 @@ async def run_agent_experiment(
             evaluators=[
                 expected_tool_sequence_matches,
                 expected_tool_arguments_match,
-                expected_tool_results_match,
                 expected_store_state_matches,
                 mutation_policy_matches,
                 completed_within_iteration_limit,
                 clarification_or_decline_matches,
                 response_language_matches,
-                *llm_as_judge_tool_evaluators(tools),
+                *llm_as_judge_response_evaluators(),
             ],
             experiment_name=(
-                f"{case_set} | {settings.llm_model} | prompt {SYSTEM_PROMPT_VERSION}"
+                f"Salla agent | {settings.llm_model} | prompt {SYSTEM_PROMPT_VERSION}"
             ),
             experiment_description=(
                 "Runs the Salla agent against a deterministic fake merchant store."
             ),
             experiment_metadata={
-                "case_set": case_set,
                 "agent_model": settings.llm_model,
                 "eval_model": settings.eval_model,
                 "prompt_version": SYSTEM_PROMPT_VERSION,
@@ -254,8 +288,8 @@ async def run_agent_experiment(
         )
 
 
-async def run(case_set: str, report_path: Path) -> dict[str, Any]:
-    dataset_name, cases = load_and_validate_cases(case_set=case_set)
+async def run(report_path: Path | None) -> dict[str, Any]:
+    dataset_name, cases = load_and_validate_cases()
     async with httpx.AsyncClient(base_url=settings.phoenix_base_url) as http_client:
         phx_client = AsyncClient(http_client=http_client)
         dataset = await create_evaluation_dataset(phx_client, dataset_name, cases)
@@ -263,8 +297,11 @@ async def run(case_set: str, report_path: Path) -> dict[str, Any]:
             f"Uploaded {len(dataset.examples)} cases to {dataset.name!r} "
             f"(version {dataset.version_id})"
         )
-        ran_experiment = await run_agent_experiment(phx_client, dataset, case_set)
-    report = build_experiment_report(ran_experiment, dataset, cases, case_set)
+        ran_experiment = await run_agent_experiment(phx_client, dataset)
+    report = build_experiment_report(ran_experiment, dataset, cases)
+    if report_path is None:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        report_path = REPORTS_DIR / f"{timestamp}.json"
     write_report(report, report_path)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     print(f"Report written to {report_path}")
@@ -275,11 +312,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command")
     run_parser = subparsers.add_parser("run", help="Run a Phoenix experiment.")
-    run_parser.add_argument("--case-set", choices=("quick", "full"), default="full")
-    run_parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
+    run_parser.add_argument("--report", type=Path)
     subparsers.add_parser("validate", help="Validate evaluation cases without an LLM.")
     gate_parser = subparsers.add_parser("gate", help="Apply the release gate to a report.")
-    gate_parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
+    gate_parser.add_argument("--report", type=Path, required=True)
     return parser.parse_args()
 
 
@@ -295,12 +331,7 @@ def main() -> None:
         exit_code = gate_exit_code(report)
         print(json.dumps(report.get("gate", {}), indent=2))
         raise SystemExit(exit_code)
-    asyncio.run(
-        run(
-            args.case_set if args.command else "full",
-            args.report if args.command else DEFAULT_REPORT,
-        )
-    )
+    asyncio.run(run(args.report if args.command else None))
 
 
 if __name__ == "__main__":

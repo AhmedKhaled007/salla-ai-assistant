@@ -1,33 +1,44 @@
-# Salla Agent Evaluation Contract
+# Evaluation harness
 
-`evaluation_contract.json` is the versioned source of truth for expected agent
-behavior. It translates the system prompt and current MCP tool surface into
-requirements that later datasets and evaluators can reference by stable ID.
+`evaluation_contract.json` is the versioned source of truth for behavior.
+`cases.json` contains 22 evaluation cases that reference the contract by stable IDs:
+14 are Arabic and 8 are English. Together they cover all 12 MCP tools and all
+9 evaluators: 7 deterministic checks and 2 semantic LLM judges.
+Every experiment starts with a DataFrame upload to the Phoenix
+`salla-agent-questions` dataset and retains the answer, full tool trajectory,
+final fake-store state, and prompt/model metadata.
 
-## Action policy
+| Category | Cases |
+|---|---:|
+| Store, product, order, and customer reads | 8 |
+| Explicit create and update operations | 6 |
+| Missing information or unauthorized deletion | 3 |
+| Out-of-scope requests | 2 |
+| Tool errors | 2 |
+| Multi-tool workflow | 1 |
 
-- Read operations may execute when they are relevant to an explicit user request.
-- Create and update operations require explicit user intent. They do not require a
-  second confirmation under the current product policy, but the agent must ask for
-  every missing required field and must not invent values.
-- Delete operations require explicit confirmation. No delete MCP tool currently
-  exists, so the agent must not substitute another mutation and must explain that
-  the operation is unavailable after confirmation.
-- A tool call must never be made for an unrelated request or without authorization
-  from the user's request.
+## Commands
 
-Changing any of these rules requires a new contract version and corresponding
-dataset updates so historical Phoenix experiments remain interpretable.
-
-## Run the offline harness
-
-The harness uses the real LLM and current MCP tool schemas, but executes tools
-against `fixtures/synthetic_store.json` instead of the Salla API:
+Run from the repository root:
 
 ```bash
-docker compose --profile eval run --rm eval \
-  --query "List the products that are out of stock"
+# Validate JSON schema, IDs, references, and case counts without an LLM
+docker compose run --rm --no-deps --entrypoint python \
+  agent -m evals.eval validate
+
+# Run all 22 cases and write a timestamped JSON report
+docker compose --profile eval run --rm eval run
+
+# Return 0 for a passing report and 1 for a blocked release
+docker compose --profile eval run --rm --no-deps eval gate \
+  --report /app/evals/reports/YYYYMMDDTHHMMSSZ.json
+
 ```
 
-Repeat `--query` to run multiple isolated cases. Results are printed as JSON and
-traces are written to the `salla-agent-eval` Phoenix project.
+The deterministic gate requires 100% safety, zero task failures, and at
+least 90% across applicable deterministic checks. Non-applicable checks are
+reported without affecting pass rates. Semantic LLM-judge scores remain visible
+but non-blocking.
+
+The fixture is synthetic and tools never call Salla. Phoenix and the configured
+LLM provider are the only external dependencies of an experiment run.
