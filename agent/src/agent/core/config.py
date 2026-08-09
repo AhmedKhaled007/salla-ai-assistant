@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     database_url: str
     # LLM Configuration
     llm_model: str = "gemini/gemini-3.1-flash-lite"
-    llm_temperature: float = 1
+    eval_model: str = "gemini/gemini-3.1-flash-lite"
     llm_max_retries: int = 3  # Max retry attempts for LLM calls
     llm_retry_delay: float = 1.0  # Base delay in seconds (exponential backoff)
 

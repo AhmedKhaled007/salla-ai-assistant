@@ -23,7 +23,6 @@ async def call_llm(messages: list, tools: list = None, stream: bool = False):
             kwargs = {
                 "model": settings.llm_model,
                 "messages": messages,
-                "temperature": settings.llm_temperature,
             }
 
             if tools:

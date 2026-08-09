@@ -13,8 +13,7 @@ COPY pyproject.toml .
 # Copy source code
 COPY src/ src/
 
-# Install dependencies (system-wide since we are in a container)
-RUN uv pip install --system -e .
+RUN uv pip install --system -e '.[dev]'
 
 RUN useradd -m -u 1000 agent && \
     mkdir -p /app/conversations && \
