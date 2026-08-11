@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 import httpx
 import pandas as pd
@@ -17,9 +16,9 @@ from phoenix.client import AsyncClient
 from phoenix.client.resources.datasets import Dataset
 from phoenix.client.resources.experiments.types import RanExperiment
 from phoenix.evals import ClassificationEvaluator, LLM, bind_evaluator
+from phoenix.evals.metrics import ToolInvocationEvaluator, ToolSelectionEvaluator
 
 from agent.core.config import settings
-from agent.core.observability import agent_turn_span, phoenix_observability
 from agent.services.agent_runner import AgentRunner, MAX_ITERATIONS_MESSAGE
 from agent.services.prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_VERSION
 from evals.fake_mcp import FakeSallaStore
@@ -44,8 +43,6 @@ MUTATION_TOOLS = {
     "salla_update_order_status",
     "salla_create_customer",
 }
-
-
 async def create_evaluation_dataset(
     phx_client: AsyncClient,
     dataset_name: str,
@@ -56,7 +53,6 @@ async def create_evaluation_dataset(
             **case,
             "expected_tool_sequence": json.dumps(case["expected_tool_sequence"]),
             "expected_arguments": json.dumps(case["expected_arguments"], ensure_ascii=False),
-            "expected_tool_results": json.dumps(case["expected_tool_results"], ensure_ascii=False),
             "expected_store_state": json.dumps(case["expected_store_state"], ensure_ascii=False),
             "requirement_ids": json.dumps(case["requirement_ids"]),
             "prompt_version": SYSTEM_PROMPT_VERSION,
@@ -70,7 +66,6 @@ async def create_evaluation_dataset(
         output_keys=[
             "expected_tool_sequence",
             "expected_arguments",
-            "expected_tool_results",
             "expected_store_state",
             "expected_behavior",
             "allow_mutation",
@@ -128,13 +123,6 @@ def completed_within_iteration_limit(output: dict) -> bool:
     return bool(output) and not output.get("reached_max_iterations", False)
 
 
-def clarification_or_decline_matches(output: dict, expected: dict) -> bool | dict[str, str]:
-    behavior = expected.get("expected_behavior")
-    if behavior not in {"clarify", "decline"}:
-        return {"label": "not_applicable"}
-    return bool(output) and not output.get("tool_calls") and bool(output.get("answer", "").strip())
-
-
 def response_language_matches(output: dict, metadata: dict) -> bool | dict[str, str]:
     if metadata.get("language") != "ar":
         return {"label": "not_applicable"}
@@ -144,8 +132,13 @@ def response_language_matches(output: dict, metadata: dict) -> bool | dict[str, 
     return any("\u0600" <= character <= "\u06ff" for character in answer)
 
 
-def llm_as_judge_response_evaluators():
+def llm_as_judge_evaluators(tools: list[dict]):
     judge_llm = LLM(provider="litellm", model=settings.eval_model)
+    available_tools = serialize_tool_definitions(tools)
+    tool_mapping = {
+        "input": lambda row: f"User: {row['input']['question']}",
+        "available_tools": lambda _: available_tools,
+    }
     shared_mapping = {
         "question": lambda row: row["input"]["question"],
         "expected_behavior": lambda row: row["expected"]["expected_behavior"],
@@ -158,6 +151,24 @@ def llm_as_judge_response_evaluators():
         "answer": lambda row: (row.get("output") or {}).get("answer", ""),
     }
     return [
+        bind_evaluator(
+            evaluator=ToolSelectionEvaluator(llm=judge_llm),
+            input_mapping={
+                **tool_mapping,
+                "tool_selection": lambda row: serialize_tool_definitions(
+                    (row.get("output") or {}).get("tool_calls", [])
+                ),
+            },
+        ),
+        bind_evaluator(
+            evaluator=ToolInvocationEvaluator(llm=judge_llm),
+            input_mapping={
+                **tool_mapping,
+                "tool_selection": lambda row: serialize_tool_definitions(
+                    (row.get("output") or {}).get("tool_calls", [])
+                ),
+            },
+        ),
         bind_evaluator(
             evaluator=ClassificationEvaluator(
                 name="response_groundedness",
@@ -176,7 +187,7 @@ def llm_as_judge_response_evaluators():
                     "operation was completed. Judge meaning, not exact wording."
                 ),
                 choices={"correct": 1.0, "incorrect": 0.0},
-                temperature=0.0,
+                # temperature=0.0,
             ),
             input_mapping=shared_mapping,
         ),
@@ -189,52 +200,51 @@ def llm_as_judge_response_evaluators():
                     "expected behavior for the user request.\n\n"
                     "User request: {question}\n"
                     "Expected behavior: {expected_behavior}\n"
+                    "Executed tool calls: {tool_calls}\n"
                     "Assistant response: {answer}\n\n"
                     "Behavior meanings: answer = directly answer or confirm the requested "
                     "operation; explain_error = accurately explain that the operation or "
                     "lookup failed; clarify = ask for the relevant missing information; "
                     "decline = explain that the request is outside Salla store assistance. "
+                    "For clarify, the assistant must ask for the information needed to "
+                    "continue and must not make a tool call. For decline, the assistant "
+                    "must communicate the scope boundary and must not make a tool call. "
                     "The response should be relevant and use the user's language. Judge "
-                    "meaning, not exact wording, and do not re-evaluate tool selection."
+                    "the semantic behavior, not exact phrases. Except for the explicit "
+                    "no-tool-call rule for clarify and decline, do not re-evaluate tool "
+                    "selection."
                 ),
                 choices={"correct": 1.0, "incorrect": 0.0},
-                temperature=0.0,
+                # temperature=0.0,
             ),
             input_mapping={
                 key: shared_mapping[key]
-                for key in ("question", "expected_behavior", "answer")
+                for key in ("question", "expected_behavior", "tool_calls", "answer")
             },
         ),
     ]
 
 
-async def run_agent(input: dict, *, agent: AgentRunner, tools: list[dict] ,tracer_provider: Any) -> dict:
+async def run_agent(
+    input: dict,
+    *,
+    agent: AgentRunner,
+    tools: list[dict],
+) -> dict:
     question = input["question"]
-    conversation_id = f"eval-{uuid4()}"
     store = FakeSallaStore(DEFAULT_FIXTURE)
-    with agent_turn_span(
-        tracer_provider,
-        conversation_id=conversation_id,
-        query=question,
-        model=settings.llm_model,
-        prompt_version=SYSTEM_PROMPT_VERSION,
-        mode="evaluation",
-    ) as span:
-        result = await agent.run(
-            [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": question},
-            ],
-            tools,
-            store.execute_tool,
-        )
-        answer = result[-1].get("content") or ""
-        if span is not None:
-            span.set_output(answer, mime_type="text/plain")
+    result = await agent.run(
+        [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": question},
+        ],
+        tools,
+        store.execute_tool,
+    )
+    answer = result[-1].get("content") or ""
     tool_calls, tool_responses = extract_agent_trajectory(result)
     return {
         "answer": answer,
-        "conversation_id": conversation_id,
         "tool_calls": tool_calls,
         "tool_responses": tool_responses,
         "path_length": len(tool_calls),
@@ -248,44 +258,35 @@ async def run_agent_experiment(
     dataset: Dataset,
 ) -> RanExperiment:
     tools = await load_tool_schemas()
-    with phoenix_observability(settings) as tracer_provider:
-        agent = AgentRunner(tracer_provider=tracer_provider)
-        task = partial(
-            run_agent,
-            agent=agent,
-            tools=tools,
-            tracer_provider=tracer_provider,
-        )
+    task = partial(run_agent, agent=AgentRunner(), tools=tools)
 
-        return await phx_client.experiments.run_experiment(
-            dataset=dataset,
-            task=task,
-            evaluators=[
-                expected_tool_sequence_matches,
-                expected_tool_arguments_match,
-                expected_store_state_matches,
-                mutation_policy_matches,
-                completed_within_iteration_limit,
-                clarification_or_decline_matches,
-                response_language_matches,
-                *llm_as_judge_response_evaluators(),
-            ],
-            experiment_name=(
-                f"Salla agent | {settings.llm_model} | prompt {SYSTEM_PROMPT_VERSION}"
-            ),
-            experiment_description=(
-                "Runs the Salla agent against a deterministic fake merchant store."
-            ),
-            experiment_metadata={
-                "agent_model": settings.llm_model,
-                "eval_model": settings.eval_model,
-                "prompt_version": SYSTEM_PROMPT_VERSION,
-                "trace_project": settings.phoenix_project_name,
-            },
-            concurrency=1,
-            timeout=None,
-            retries=0,
-        )
+    return await phx_client.experiments.run_experiment(
+        dataset=dataset,
+        task=task,
+        evaluators=[
+            expected_tool_sequence_matches,
+            expected_tool_arguments_match,
+            expected_store_state_matches,
+            mutation_policy_matches,
+            completed_within_iteration_limit,
+            response_language_matches,
+            *llm_as_judge_evaluators(tools),
+        ],
+        experiment_name=(
+            f"Salla agent | {settings.llm_model} | prompt {SYSTEM_PROMPT_VERSION}"
+        ),
+        experiment_description=(
+            "Runs the Salla agent against a deterministic fake merchant store."
+        ),
+        experiment_metadata={
+            "agent_model": settings.llm_model,
+            "eval_model": settings.eval_model,
+            "prompt_version": SYSTEM_PROMPT_VERSION,
+        },
+        concurrency=1,
+        timeout=None,
+        retries=0,
+    )
 
 
 async def run(report_path: Path | None) -> dict[str, Any]:
@@ -314,7 +315,7 @@ def parse_args() -> argparse.Namespace:
     run_parser = subparsers.add_parser("run", help="Run a Phoenix experiment.")
     run_parser.add_argument("--report", type=Path)
     subparsers.add_parser("validate", help="Validate evaluation cases without an LLM.")
-    gate_parser = subparsers.add_parser("gate", help="Apply the release gate to a report.")
+    gate_parser = subparsers.add_parser("gate", help="Apply the quality gate to a report.")
     gate_parser.add_argument("--report", type=Path, required=True)
     return parser.parse_args()
 

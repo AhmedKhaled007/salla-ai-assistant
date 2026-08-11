@@ -33,7 +33,6 @@ def load_and_validate_cases(
         "question",
         "expected_tool_sequence",
         "expected_arguments",
-        "expected_tool_results",
         "expected_store_state",
         "expected_behavior",
         "allow_mutation",
@@ -53,8 +52,6 @@ def load_and_validate_cases(
         sequence_length = len(case["expected_tool_sequence"])
         if sequence_length != len(case["expected_arguments"]):
             raise ValueError(f"{case['case_id']} has mismatched tool arguments.")
-        if sequence_length != len(case["expected_tool_results"]):
-            raise ValueError(f"{case['case_id']} has mismatched tool results.")
         unknown = set(case["requirement_ids"]) - valid_requirements
         if unknown:
             raise ValueError(f"{case['case_id']} has unknown requirements: {sorted(unknown)}")

@@ -1,0 +1,38 @@
+name: Evaluation Quality Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+jobs:
+  evaluation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate evaluation cases in Docker
+        run: >-
+          docker compose --profile eval run --rm --no-deps eval validate
+
+      - name: Start Phoenix and fake-tool schema server
+        run: docker compose up -d phoenix mcp-server
+
+      - name: Run evaluation
+        run: >-
+          docker compose --profile eval run --rm -e GEMINI_API_KEY eval run
+          --report /app/evals/reports/ci.json
+
+      - name: Enforce evaluation quality gate
+        run: >-
+          docker compose --profile eval run --rm --no-deps eval gate
+          --report /app/evals/reports/ci.json
+
+      - name: Upload evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-report
+          path: agent/evals/reports/ci.json

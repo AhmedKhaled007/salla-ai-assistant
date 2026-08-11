@@ -1,4 +1,4 @@
-"""Experiment reporting and the deterministic release gate."""
+"""Experiment reporting and the deterministic quality gate."""
 
 from __future__ import annotations
 
@@ -11,7 +11,16 @@ from typing import Any
 from phoenix.client.resources.experiments.types import RanExperiment
 
 
-LLM_EVALUATORS = {"response_groundedness", "response_behavior"}
+LLM_EVALUATORS = {
+    "tool_selection",
+    "tool_invocation",
+    "response_groundedness",
+    "response_behavior",
+}
+TOOL_JUDGE_REFERENCES = {
+    "tool_selection": "expected_tool_sequence_matches",
+    "tool_invocation": "expected_tool_arguments_match",
+}
 MIN_DETERMINISTIC_PASS_RATE = 0.9
 
 
@@ -34,18 +43,18 @@ def _result_items(value: Any) -> list[dict[str, Any]]:
 def _requirements_for(evaluator: str, case: dict[str, Any]) -> list[str]:
     requirements = set(case["requirement_ids"])
     mapping = {
-        "expected_tool_sequence_matches": {"FUN-001"},
         "expected_tool_arguments_match": {"FUN-002"},
+        "tool_invocation": {"FUN-002"},
         "expected_store_state_matches": {"FUN-003"},
         "completed_within_iteration_limit": {"FUN-005"},
         "response_language_matches": {"UX-001"},
         "response_groundedness": {"FUN-003", "FUN-004"},
         "response_behavior": {"SAF-002", "SAF-003", "SAF-004", "UX-001"},
     }
-    if evaluator == "mutation_policy_matches":
+    if evaluator in {"expected_tool_sequence_matches", "tool_selection"}:
+        wanted = {"FUN-001", "SAF-002", "SAF-003", "SAF-004"}
+    elif evaluator == "mutation_policy_matches":
         wanted = {item for item in requirements if item == "SAF-001"}
-    elif evaluator == "clarification_or_decline_matches":
-        wanted = {item for item in requirements if item in {"SAF-002", "SAF-003", "SAF-004"}}
     else:
         wanted = mapping.get(evaluator, set())
     return sorted(wanted & requirements)
@@ -73,7 +82,67 @@ def _aggregate(records: list[dict[str, Any]], key: str) -> dict[str, dict[str, A
     return aggregates
 
 
-def apply_release_gate(report: dict[str, Any]) -> dict[str, Any]:
+def _tool_judge_calibration(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    records_by_case_and_evaluator = {
+        (item["case_id"], item["evaluator"]): item
+        for item in records
+    }
+    case_ids = sorted({item["case_id"] for item in records})
+    calibration = {}
+    for judge, reference in TOOL_JUDGE_REFERENCES.items():
+        pairs = []
+        missing_pair_case_ids = []
+        not_applicable_case_ids = []
+        for case_id in case_ids:
+            judge_result = records_by_case_and_evaluator.get((case_id, judge))
+            reference_result = records_by_case_and_evaluator.get((case_id, reference))
+            if judge_result is None or reference_result is None:
+                missing_pair_case_ids.append(case_id)
+                continue
+            if not judge_result["applicable"] or not reference_result["applicable"]:
+                not_applicable_case_ids.append(case_id)
+                continue
+            pairs.append((case_id, judge_result["passed"], reference_result["passed"]))
+
+        agreements = [item for item in pairs if item[1] == item[2]]
+        false_pass_case_ids = [
+            case_id
+            for case_id, judge_passed, reference_passed in pairs
+            if judge_passed and not reference_passed
+        ]
+        false_fail_case_ids = [
+            case_id
+            for case_id, judge_passed, reference_passed in pairs
+            if not judge_passed and reference_passed
+        ]
+        case_comparisons = [
+            {
+                "case_id": case_id,
+                "judge_passed": judge_passed,
+                "reference_passed": reference_passed,
+                "agreed": judge_passed == reference_passed,
+            }
+            for case_id, judge_passed, reference_passed in pairs
+        ]
+        calibration[judge] = {
+            "reference_evaluator": reference,
+            "agreement_count": len(agreements),
+            "comparison_count": len(pairs),
+            "agreement_rate": _rate(len(agreements), len(pairs)),
+            "false_pass_count": len(false_pass_case_ids),
+            "false_pass_case_ids": false_pass_case_ids,
+            "false_fail_count": len(false_fail_case_ids),
+            "false_fail_case_ids": false_fail_case_ids,
+            "missing_pair_count": len(missing_pair_case_ids),
+            "missing_pair_case_ids": missing_pair_case_ids,
+            "not_applicable_count": len(not_applicable_case_ids),
+            "not_applicable_case_ids": not_applicable_case_ids,
+            "case_comparisons": case_comparisons,
+        }
+    return calibration
+
+
+def apply_quality_gate(report: dict[str, Any]) -> dict[str, Any]:
     summary = report["summary"]
     safety_failures = [
         item
@@ -96,7 +165,7 @@ def apply_release_gate(report: dict[str, Any]) -> dict[str, Any]:
 
 
 def gate_exit_code(report: dict[str, Any]) -> int:
-    return 0 if apply_release_gate(report)["passed"] else 1
+    return 0 if apply_quality_gate(report)["passed"] else 1
 
 
 def build_experiment_report(
@@ -152,6 +221,13 @@ def build_experiment_report(
     deterministic = [item for item in applicable_records if item["kind"] == "deterministic"]
     llm = [item for item in applicable_records if item["kind"] == "llm"]
     failures = [item for item in applicable_records if not item["passed"]]
+    tool_judge_calibration = _tool_judge_calibration(records)
+    tool_judge_agreement_count = sum(
+        item["agreement_count"] for item in tool_judge_calibration.values()
+    )
+    tool_judge_comparison_count = sum(
+        item["comparison_count"] for item in tool_judge_calibration.values()
+    )
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "experiment_id": ran_experiment["experiment_id"],
@@ -163,6 +239,25 @@ def build_experiment_report(
                 len(deterministic),
             ),
             "llm_judge_pass_rate": _rate(sum(item["passed"] for item in llm), len(llm)),
+            "tool_judge_agreement_count": tool_judge_agreement_count,
+            "tool_judge_comparison_count": tool_judge_comparison_count,
+            "tool_judge_agreement_rate": _rate(
+                tool_judge_agreement_count,
+                tool_judge_comparison_count,
+            ),
+            "tool_judge_false_pass_count": sum(
+                item["false_pass_count"] for item in tool_judge_calibration.values()
+            ),
+            "tool_judge_false_fail_count": sum(
+                item["false_fail_count"] for item in tool_judge_calibration.values()
+            ),
+            "tool_judge_not_applicable_count": sum(
+                item["not_applicable_count"]
+                for item in tool_judge_calibration.values()
+            ),
+            "tool_judge_missing_pair_count": sum(
+                item["missing_pair_count"] for item in tool_judge_calibration.values()
+            ),
             "not_applicable_evaluations": len(records) - len(applicable_records),
             "task_failures": len(task_failures),
         },
@@ -172,10 +267,11 @@ def build_experiment_report(
         ),
         "by_language": _aggregate(records, "language"),
         "by_evaluator": _aggregate(records, "evaluator"),
+        "tool_judge_calibration": tool_judge_calibration,
         "failures": failures,
         "task_failures": task_failures,
     }
-    report["gate"] = apply_release_gate(report)
+    report["gate"] = apply_quality_gate(report)
     return report
 
 
